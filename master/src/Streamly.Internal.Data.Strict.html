@@ -1,0 +1,172 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- |</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- Module      : Streamly.Internal.Data.Strict</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- Copyright   : (c) 2019 Composewell Technologies</span><span>
+</span><span id="line-4"></span><span class="hs-comment">--               (c) 2013 Gabriel Gonzalez</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- License     : BSD3</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Maintainer  : streamly@composewell.com</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Stability   : experimental</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- Portability : GHC</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- | Strict data types to be used as accumulator for strict left folds and</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- scans. For more comprehensive strict data types see</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- https://hackage.haskell.org/package/strict-base-types . The names have been</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- suffixed by a prime so that programmers can easily distinguish the strict</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- versions from the lazy ones.</span><span>
+</span><span id="line-15"></span><span class="hs-comment">--</span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- One major advantage of strict data structures as accumulators in folds and</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- scans is that it helps the compiler optimize the code much better by</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- unboxing. In a big tight loop the difference could be huge.</span><span>
+</span><span id="line-19"></span><span class="hs-comment">--</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Streamly.Internal.Data.Strict</span><span>
+</span><span id="line-21"></span><span>    </span><span class="hs-special">(</span><span>
+</span><span id="line-22"></span><span>      </span><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Tuple%27"><span class="hs-identifier">Tuple'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Tuple3%27"><span class="hs-identifier">Tuple3'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Tuple4%27"><span class="hs-identifier">Tuple4'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Maybe%27"><span class="hs-identifier">Maybe'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streamly.Internal.Data.Strict.html#toMaybe"><span class="hs-identifier">toMaybe</span></a></span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Either%27"><span class="hs-identifier">Either'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-30"></span><span>
+</span><span id="line-31"></span><span class="hs-comment">-------------------------------------------------------------------------------</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- Tuples</span><span>
+</span><span id="line-33"></span><span class="hs-comment">-------------------------------------------------------------------------------</span><span>
+</span><span id="line-34"></span><span class="hs-comment">--</span><span>
+</span><span id="line-35"></span><span class="hs-keyword">data</span><span> </span><span id="Tuple%27"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Tuple%27"><span class="hs-identifier hs-var">Tuple'</span></a></span></span><span> </span><span id="local-6989586621679269144"><span class="annot"><a href="#local-6989586621679269144"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span id="local-6989586621679269143"><span class="annot"><a href="#local-6989586621679269143"><span class="hs-identifier hs-type">b</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Tuple%27"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Tuple%27"><span class="hs-identifier hs-var">Tuple'</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679269144"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679269143"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">deriving</span><span> </span><span id="local-6989586621679269136"><span id="local-6989586621679269138"><span id="local-6989586621679269140"><span class="annot"><span class="annottext">Int -&gt; Tuple' a b -&gt; ShowS
+[Tuple' a b] -&gt; ShowS
+Tuple' a b -&gt; String
+(Int -&gt; Tuple' a b -&gt; ShowS)
+-&gt; (Tuple' a b -&gt; String)
+-&gt; ([Tuple' a b] -&gt; ShowS)
+-&gt; Show (Tuple' a b)
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+forall a b. (Show a, Show b) =&gt; Int -&gt; Tuple' a b -&gt; ShowS
+forall a b. (Show a, Show b) =&gt; [Tuple' a b] -&gt; ShowS
+forall a b. (Show a, Show b) =&gt; Tuple' a b -&gt; String
+showList :: [Tuple' a b] -&gt; ShowS
+$cshowList :: forall a b. (Show a, Show b) =&gt; [Tuple' a b] -&gt; ShowS
+show :: Tuple' a b -&gt; String
+$cshow :: forall a b. (Show a, Show b) =&gt; Tuple' a b -&gt; String
+showsPrec :: Int -&gt; Tuple' a b -&gt; ShowS
+$cshowsPrec :: forall a b. (Show a, Show b) =&gt; Int -&gt; Tuple' a b -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span>
+</span><span id="line-36"></span><span class="hs-keyword">data</span><span> </span><span id="Tuple3%27"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Tuple3%27"><span class="hs-identifier hs-var">Tuple3'</span></a></span></span><span> </span><span id="local-6989586621679269134"><span class="annot"><a href="#local-6989586621679269134"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span id="local-6989586621679269133"><span class="annot"><a href="#local-6989586621679269133"><span class="hs-identifier hs-type">b</span></a></span></span><span> </span><span id="local-6989586621679269132"><span class="annot"><a href="#local-6989586621679269132"><span class="hs-identifier hs-type">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Tuple3%27"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Tuple3%27"><span class="hs-identifier hs-var">Tuple3'</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679269134"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679269133"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679269132"><span class="hs-identifier hs-type">c</span></a></span><span> </span><span class="hs-keyword">deriving</span><span> </span><span id="local-6989586621679269125"><span id="local-6989586621679269127"><span id="local-6989586621679269129"><span class="annot"><span class="annottext">Int -&gt; Tuple3' a b c -&gt; ShowS
+[Tuple3' a b c] -&gt; ShowS
+Tuple3' a b c -&gt; String
+(Int -&gt; Tuple3' a b c -&gt; ShowS)
+-&gt; (Tuple3' a b c -&gt; String)
+-&gt; ([Tuple3' a b c] -&gt; ShowS)
+-&gt; Show (Tuple3' a b c)
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+forall a b c.
+(Show a, Show b, Show c) =&gt;
+Int -&gt; Tuple3' a b c -&gt; ShowS
+forall a b c. (Show a, Show b, Show c) =&gt; [Tuple3' a b c] -&gt; ShowS
+forall a b c. (Show a, Show b, Show c) =&gt; Tuple3' a b c -&gt; String
+showList :: [Tuple3' a b c] -&gt; ShowS
+$cshowList :: forall a b c. (Show a, Show b, Show c) =&gt; [Tuple3' a b c] -&gt; ShowS
+show :: Tuple3' a b c -&gt; String
+$cshow :: forall a b c. (Show a, Show b, Show c) =&gt; Tuple3' a b c -&gt; String
+showsPrec :: Int -&gt; Tuple3' a b c -&gt; ShowS
+$cshowsPrec :: forall a b c.
+(Show a, Show b, Show c) =&gt;
+Int -&gt; Tuple3' a b c -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span>
+</span><span id="line-37"></span><span class="hs-keyword">data</span><span> </span><span id="Tuple4%27"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Tuple4%27"><span class="hs-identifier hs-var">Tuple4'</span></a></span></span><span> </span><span id="local-6989586621679269124"><span class="annot"><a href="#local-6989586621679269124"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span id="local-6989586621679269123"><span class="annot"><a href="#local-6989586621679269123"><span class="hs-identifier hs-type">b</span></a></span></span><span> </span><span id="local-6989586621679269122"><span class="annot"><a href="#local-6989586621679269122"><span class="hs-identifier hs-type">c</span></a></span></span><span> </span><span id="local-6989586621679269121"><span class="annot"><a href="#local-6989586621679269121"><span class="hs-identifier hs-type">d</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Tuple4%27"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Tuple4%27"><span class="hs-identifier hs-var">Tuple4'</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679269124"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679269123"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679269122"><span class="hs-identifier hs-type">c</span></a></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679269121"><span class="hs-identifier hs-type">d</span></a></span><span> </span><span class="hs-keyword">deriving</span><span> </span><span id="local-6989586621679269114"><span id="local-6989586621679269116"><span id="local-6989586621679269118"><span class="annot"><span class="annottext">Int -&gt; Tuple4' a b c d -&gt; ShowS
+[Tuple4' a b c d] -&gt; ShowS
+Tuple4' a b c d -&gt; String
+(Int -&gt; Tuple4' a b c d -&gt; ShowS)
+-&gt; (Tuple4' a b c d -&gt; String)
+-&gt; ([Tuple4' a b c d] -&gt; ShowS)
+-&gt; Show (Tuple4' a b c d)
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+forall a b c d.
+(Show a, Show b, Show c, Show d) =&gt;
+Int -&gt; Tuple4' a b c d -&gt; ShowS
+forall a b c d.
+(Show a, Show b, Show c, Show d) =&gt;
+[Tuple4' a b c d] -&gt; ShowS
+forall a b c d.
+(Show a, Show b, Show c, Show d) =&gt;
+Tuple4' a b c d -&gt; String
+showList :: [Tuple4' a b c d] -&gt; ShowS
+$cshowList :: forall a b c d.
+(Show a, Show b, Show c, Show d) =&gt;
+[Tuple4' a b c d] -&gt; ShowS
+show :: Tuple4' a b c d -&gt; String
+$cshow :: forall a b c d.
+(Show a, Show b, Show c, Show d) =&gt;
+Tuple4' a b c d -&gt; String
+showsPrec :: Int -&gt; Tuple4' a b c d -&gt; ShowS
+$cshowsPrec :: forall a b c d.
+(Show a, Show b, Show c, Show d) =&gt;
+Int -&gt; Tuple4' a b c d -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span>
+</span><span id="line-38"></span><span>
+</span><span id="line-39"></span><span class="hs-comment">-------------------------------------------------------------------------------</span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- Maybe</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-------------------------------------------------------------------------------</span><span>
+</span><span id="line-42"></span><span class="hs-comment">--</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- | A strict 'Maybe'</span><span>
+</span><span id="line-44"></span><span class="hs-keyword">data</span><span> </span><span id="Maybe%27"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Maybe%27"><span class="hs-identifier hs-var">Maybe'</span></a></span></span><span> </span><span id="local-6989586621679269113"><span class="annot"><a href="#local-6989586621679269113"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Just%27"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Just%27"><span class="hs-identifier hs-var">Just'</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679269113"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">|</span><span> </span><span id="Nothing%27"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Nothing%27"><span class="hs-identifier hs-var">Nothing'</span></a></span></span><span> </span><span class="hs-keyword">deriving</span><span> </span><span id="local-6989586621679269105"><span id="local-6989586621679269107"><span id="local-6989586621679269109"><span class="annot"><span class="annottext">Int -&gt; Maybe' a -&gt; ShowS
+[Maybe' a] -&gt; ShowS
+Maybe' a -&gt; String
+(Int -&gt; Maybe' a -&gt; ShowS)
+-&gt; (Maybe' a -&gt; String) -&gt; ([Maybe' a] -&gt; ShowS) -&gt; Show (Maybe' a)
+forall a. Show a =&gt; Int -&gt; Maybe' a -&gt; ShowS
+forall a. Show a =&gt; [Maybe' a] -&gt; ShowS
+forall a. Show a =&gt; Maybe' a -&gt; String
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [Maybe' a] -&gt; ShowS
+$cshowList :: forall a. Show a =&gt; [Maybe' a] -&gt; ShowS
+show :: Maybe' a -&gt; String
+$cshow :: forall a. Show a =&gt; Maybe' a -&gt; String
+showsPrec :: Int -&gt; Maybe' a -&gt; ShowS
+$cshowsPrec :: forall a. Show a =&gt; Int -&gt; Maybe' a -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- XXX perhaps we can use a type class having fromStrict/toStrict operations.</span><span>
+</span><span id="line-47"></span><span class="hs-comment">--</span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- | Convert strict Maybe' to lazy Maybe</span><span>
+</span><span id="line-49"></span><span class="hs-pragma">{-# INLINABLE</span><span> </span><span class="annot"><a href="Streamly.Internal.Data.Strict.html#toMaybe"><span class="hs-pragma hs-type">toMaybe</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-50"></span><span id="local-6989586621679269104"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#toMaybe"><span class="hs-identifier hs-type">toMaybe</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Maybe%27"><span class="hs-identifier hs-type">Maybe'</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679269104"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679269104"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-51"></span><span id="toMaybe"><span class="annot"><span class="annottext">toMaybe :: Maybe' a -&gt; Maybe a
+</span><a href="Streamly.Internal.Data.Strict.html#toMaybe"><span class="hs-identifier hs-var hs-var">toMaybe</span></a></span></span><span>  </span><span class="annot"><span class="annottext">Maybe' a
+</span><a href="Streamly.Internal.Data.Strict.html#Nothing%27"><span class="hs-identifier hs-var">Nothing'</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe a
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-52"></span><span class="annot"><a href="Streamly.Internal.Data.Strict.html#toMaybe"><span class="hs-identifier hs-var">toMaybe</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Just%27"><span class="hs-identifier hs-type">Just'</span></a></span><span> </span><span id="local-6989586621679269103"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679269103"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; Maybe a
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679269103"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-53"></span><span>
+</span><span id="line-54"></span><span class="hs-comment">-------------------------------------------------------------------------------</span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- Either</span><span>
+</span><span id="line-56"></span><span class="hs-comment">-------------------------------------------------------------------------------</span><span>
+</span><span id="line-57"></span><span class="hs-comment">--</span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- | A strict 'Either'</span><span>
+</span><span id="line-59"></span><span class="hs-keyword">data</span><span> </span><span id="Either%27"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Either%27"><span class="hs-identifier hs-var">Either'</span></a></span></span><span> </span><span id="local-6989586621679269102"><span class="annot"><a href="#local-6989586621679269102"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span id="local-6989586621679269101"><span class="annot"><a href="#local-6989586621679269101"><span class="hs-identifier hs-type">b</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Left%27"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Left%27"><span class="hs-identifier hs-var">Left'</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679269102"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">|</span><span> </span><span id="Right%27"><span class="annot"><a href="Streamly.Internal.Data.Strict.html#Right%27"><span class="hs-identifier hs-var">Right'</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679269101"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-keyword">deriving</span><span> </span><span id="local-6989586621679269093"><span id="local-6989586621679269095"><span id="local-6989586621679269097"><span class="annot"><span class="annottext">Int -&gt; Either' a b -&gt; ShowS
+[Either' a b] -&gt; ShowS
+Either' a b -&gt; String
+(Int -&gt; Either' a b -&gt; ShowS)
+-&gt; (Either' a b -&gt; String)
+-&gt; ([Either' a b] -&gt; ShowS)
+-&gt; Show (Either' a b)
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+forall a b. (Show a, Show b) =&gt; Int -&gt; Either' a b -&gt; ShowS
+forall a b. (Show a, Show b) =&gt; [Either' a b] -&gt; ShowS
+forall a b. (Show a, Show b) =&gt; Either' a b -&gt; String
+showList :: [Either' a b] -&gt; ShowS
+$cshowList :: forall a b. (Show a, Show b) =&gt; [Either' a b] -&gt; ShowS
+show :: Either' a b -&gt; String
+$cshow :: forall a b. (Show a, Show b) =&gt; Either' a b -&gt; String
+showsPrec :: Int -&gt; Either' a b -&gt; ShowS
+$cshowsPrec :: forall a b. (Show a, Show b) =&gt; Int -&gt; Either' a b -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span>
+</span><span id="line-60"></span></pre></body></html>

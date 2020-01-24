@@ -1,0 +1,633 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- |</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- Module      : Streamly.Memory.Ring</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- Copyright   : (c) 2019 Composewell Technologies</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- License     : BSD3</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- Maintainer  : streamly@composewell.com</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Stability   : experimental</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Portability : GHC</span><span>
+</span><span id="line-8"></span><span class="hs-comment">--</span><span>
+</span><span id="line-9"></span><span>
+</span><span id="line-10"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Streamly.Memory.Ring</span><span>
+</span><span id="line-11"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier">Ring</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Construction</span></span><span>
+</span><span id="line-14"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#new"><span class="hs-identifier">new</span></a></span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Modification</span></span><span>
+</span><span id="line-17"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeInsert"><span class="hs-identifier">unsafeInsert</span></a></span><span>
+</span><span id="line-18"></span><span>
+</span><span id="line-19"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Folds</span></span><span>
+</span><span id="line-20"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeFoldRing"><span class="hs-identifier">unsafeFoldRing</span></a></span><span>
+</span><span id="line-21"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeFoldRingM"><span class="hs-identifier">unsafeFoldRingM</span></a></span><span>
+</span><span id="line-22"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeFoldRingFullM"><span class="hs-identifier">unsafeFoldRingFullM</span></a></span><span>
+</span><span id="line-23"></span><span>
+</span><span id="line-24"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Fast Byte Comparisons</span></span><span>
+</span><span id="line-25"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeEqArray"><span class="hs-identifier">unsafeEqArray</span></a></span><span>
+</span><span id="line-26"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeEqArrayN"><span class="hs-identifier">unsafeEqArrayN</span></a></span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Control.Exception</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">assert</span></span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Foreign.ForeignPtr</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">ForeignPtr</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">withForeignPtr</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">touchForeignPtr</span></span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Foreign.ForeignPtr.Unsafe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">unsafeForeignPtrToPtr</span></span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Foreign.Ptr</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">plusPtr</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">minusPtr</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">castPtr</span></span><span class="hs-special">)</span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Foreign.Storable</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Storable</span></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">GHC.ForeignPtr</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">mallocPlainForeignPtrAlignedBytes</span></span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">GHC.Ptr</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Ptr</span></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Prelude</span></span><span> </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">length</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">concat</span></span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Control.Monad.IO.Class</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MonadIO</span></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Streamly.Internal.Memory.Array.Types.html"><span class="hs-identifier">Streamly.Internal.Memory.Array.Types</span></a></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">A</span></span><span>
+</span><span id="line-41"></span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- | A ring buffer is a mutable array of fixed size. Initially the array is</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- empty, with ringStart pointing at the start of allocated memory. We call the</span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- next location to be written in the ring as ringHead. Initially ringHead ==</span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- ringStart. When the first item is added, ringHead points to ringStart +</span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- sizeof item. When the buffer becomes full ringHead would wrap around to</span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- ringStart. When the buffer is full, ringHead always points at the oldest</span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- item in the ring and the newest item added always overwrites the oldest</span><span>
+</span><span id="line-49"></span><span class="hs-comment">-- item.</span><span>
+</span><span id="line-50"></span><span class="hs-comment">--</span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- When using it we should keep in mind that a ringBuffer is a mutable data</span><span>
+</span><span id="line-52"></span><span class="hs-comment">-- structure. We should not leak out references to it for immutable use.</span><span>
+</span><span id="line-53"></span><span class="hs-comment">--</span><span>
+</span><span id="line-54"></span><span class="hs-keyword">data</span><span> </span><span id="Ring"><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-var">Ring</span></a></span></span><span> </span><span id="local-6989586621679282545"><span class="annot"><a href="#local-6989586621679282545"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Ring"><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-var">Ring</span></a></span></span><span>
+</span><span id="line-55"></span><span>    </span><span class="hs-special">{</span><span> </span><span id="ringStart"><span class="annot"><span class="annottext">Ring a -&gt; ForeignPtr a
+</span><a href="Streamly.Memory.Ring.html#ringStart"><span class="hs-identifier hs-var hs-var">ringStart</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ForeignPtr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282545"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- first address</span><span>
+</span><span id="line-56"></span><span>    </span><span class="hs-special">,</span><span> </span><span id="ringBound"><span class="annot"><span class="annottext">Ring a -&gt; Ptr a
+</span><a href="Streamly.Memory.Ring.html#ringBound"><span class="hs-identifier hs-var hs-var">ringBound</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Ptr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282545"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>        </span><span class="hs-comment">-- first address beyond allocated memory</span><span>
+</span><span id="line-57"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- | Create a new ringbuffer and return the ring buffer and the ringHead.</span><span>
+</span><span id="line-60"></span><span class="hs-comment">-- Returns the ring and the ringHead, the ringHead is same as ringStart.</span><span>
+</span><span id="line-61"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#new"><span class="hs-pragma hs-type">new</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-62"></span><span class="annot"><a href="Streamly.Memory.Ring.html#new"><span class="hs-identifier hs-type">new</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679282484"><span class="annot"><a href="#local-6989586621679282484"><span class="hs-identifier hs-type">a</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Storable</span></span><span> </span><span class="annot"><a href="#local-6989586621679282484"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282484"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ptr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282484"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-63"></span><span id="new"><span class="annot"><span class="annottext">new :: Int -&gt; IO (Ring a, Ptr a)
+</span><a href="Streamly.Memory.Ring.html#new"><span class="hs-identifier hs-var hs-var">new</span></a></span></span><span> </span><span id="local-6989586621679282483"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282483"><span class="hs-identifier hs-var">count</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-64"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679282482"><span class="annot"><span class="annottext">size :: Int
+</span><a href="#local-6989586621679282482"><span class="hs-identifier hs-var hs-var">size</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282483"><span class="hs-identifier hs-var">count</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">*</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; Int
+forall a. Storable a =&gt; a -&gt; Int
+</span><span class="hs-identifier hs-var">sizeOf</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+forall a. HasCallStack =&gt; a
+</span><span class="hs-identifier hs-var">undefined</span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679282484"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-65"></span><span>    </span><span id="local-6989586621679282478"><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282478"><span class="hs-identifier hs-var">fptr</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; IO (ForeignPtr a)
+forall a. Int -&gt; Int -&gt; IO (ForeignPtr a)
+</span><span class="hs-identifier hs-var">mallocPlainForeignPtrAlignedBytes</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282482"><span class="hs-identifier hs-var">size</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Int
+forall a. Storable a =&gt; a -&gt; Int
+</span><span class="hs-identifier hs-var">alignment</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+forall a. HasCallStack =&gt; a
+</span><span class="hs-identifier hs-var">undefined</span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679282484"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-66"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679282476"><span class="annot"><span class="annottext">p :: Ptr a
+</span><a href="#local-6989586621679282476"><span class="hs-identifier hs-var hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ForeignPtr a -&gt; Ptr a
+forall a. ForeignPtr a -&gt; Ptr a
+</span><span class="hs-identifier hs-var">unsafeForeignPtrToPtr</span></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282478"><span class="hs-identifier hs-var">fptr</span></a></span><span>
+</span><span id="line-67"></span><span>    </span><span class="annot"><span class="annottext">(Ring a, Ptr a) -&gt; IO (Ring a, Ptr a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ring :: forall a. ForeignPtr a -&gt; Ptr a -&gt; Ring a
+</span><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span>
+</span><span id="line-68"></span><span>        </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">ringStart :: ForeignPtr a
+</span><a href="Streamly.Memory.Ring.html#ringStart"><span class="hs-identifier hs-var">ringStart</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282478"><span class="hs-identifier hs-var">fptr</span></a></span><span>
+</span><span id="line-69"></span><span>        </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ringBound :: Ptr a
+</span><a href="Streamly.Memory.Ring.html#ringBound"><span class="hs-identifier hs-var">ringBound</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282476"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Int -&gt; Ptr a
+forall a b. Ptr a -&gt; Int -&gt; Ptr b
+</span><span class="hs-operator hs-var">`plusPtr`</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282482"><span class="hs-identifier hs-var">size</span></a></span><span>
+</span><span id="line-70"></span><span>        </span><span class="hs-special">}</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282476"><span class="hs-identifier hs-var">p</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-71"></span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- | Advance the ringHead by 1 item, wrap around if we hit the end of the</span><span>
+</span><span id="line-73"></span><span class="hs-comment">-- array.</span><span>
+</span><span id="line-74"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#advance"><span class="hs-pragma hs-type">advance</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-75"></span><span class="annot"><a href="Streamly.Memory.Ring.html#advance"><span class="hs-identifier hs-type">advance</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679282535"><span class="annot"><a href="#local-6989586621679282535"><span class="hs-identifier hs-type">a</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Storable</span></span><span> </span><span class="annot"><a href="#local-6989586621679282535"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282535"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ptr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282535"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ptr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282535"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-76"></span><span id="advance"><span class="annot"><span class="annottext">advance :: Ring a -&gt; Ptr a -&gt; Ptr a
+</span><a href="Streamly.Memory.Ring.html#advance"><span class="hs-identifier hs-var hs-var">advance</span></a></span></span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span class="hs-special">{</span><span id="local-6989586621679282473"><span id="local-6989586621679282474"><span class="annot"><span class="annottext">Ptr a
+ForeignPtr a
+ringBound :: Ptr a
+ringStart :: ForeignPtr a
+ringBound :: forall a. Ring a -&gt; Ptr a
+ringStart :: forall a. Ring a -&gt; ForeignPtr a
+</span><a href="#local-6989586621679282473"><span class="hs-glyph hs-var hs-var hs-var hs-var">..</span></a></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679282472"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282472"><span class="hs-identifier hs-var">ringHead</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-77"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679282471"><span class="annot"><span class="annottext">ptr :: Ptr b
+</span><a href="#local-6989586621679282471"><span class="hs-identifier hs-var hs-var">ptr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282472"><span class="hs-identifier hs-var">ringHead</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Int -&gt; Ptr b
+forall a b. Ptr a -&gt; Int -&gt; Ptr b
+</span><span class="hs-operator hs-var">`plusPtr`</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; Int
+forall a. Storable a =&gt; a -&gt; Int
+</span><span class="hs-identifier hs-var">sizeOf</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+forall a. HasCallStack =&gt; a
+</span><span class="hs-identifier hs-var">undefined</span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679282535"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-78"></span><span>    </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Ptr a
+forall b. Ptr b
+</span><a href="#local-6989586621679282471"><span class="hs-identifier hs-var">ptr</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr a -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&lt;</span></span><span>  </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282473"><span class="hs-identifier hs-var">ringBound</span></a></span><span>
+</span><span id="line-79"></span><span>       </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Ptr a
+forall b. Ptr b
+</span><a href="#local-6989586621679282471"><span class="hs-identifier hs-var">ptr</span></a></span><span>
+</span><span id="line-80"></span><span>       </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">ForeignPtr a -&gt; Ptr a
+forall a. ForeignPtr a -&gt; Ptr a
+</span><span class="hs-identifier hs-var">unsafeForeignPtrToPtr</span></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282474"><span class="hs-identifier hs-var">ringStart</span></a></span><span>
+</span><span id="line-81"></span><span>
+</span><span id="line-82"></span><span class="hs-comment">-- | Insert an item at the head of the ring, when the ring is full this</span><span>
+</span><span id="line-83"></span><span class="hs-comment">-- replaces the oldest item in the ring with the new item. This is unsafe</span><span>
+</span><span id="line-84"></span><span class="hs-comment">-- beause ringHead supplied is not verified to be within the Ring. Also,</span><span>
+</span><span id="line-85"></span><span class="hs-comment">-- the ringStart foreignPtr must be guaranteed to be alive by the caller.</span><span>
+</span><span id="line-86"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeInsert"><span class="hs-pragma hs-type">unsafeInsert</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-87"></span><span id="local-6989586621679282469"><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeInsert"><span class="hs-identifier hs-type">unsafeInsert</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Storable</span></span><span> </span><span class="annot"><a href="#local-6989586621679282469"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282469"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ptr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282469"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282469"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Ptr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282469"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-88"></span><span id="unsafeInsert"><span class="annot"><span class="annottext">unsafeInsert :: Ring a -&gt; Ptr a -&gt; a -&gt; IO (Ptr a)
+</span><a href="Streamly.Memory.Ring.html#unsafeInsert"><span class="hs-identifier hs-var hs-var">unsafeInsert</span></a></span></span><span> </span><span id="local-6989586621679282468"><span class="annot"><span class="annottext">Ring a
+</span><a href="#local-6989586621679282468"><span class="hs-identifier hs-var">rb</span></a></span></span><span> </span><span id="local-6989586621679282467"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282467"><span class="hs-identifier hs-var">ringHead</span></a></span></span><span> </span><span id="local-6989586621679282466"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679282466"><span class="hs-identifier hs-var">newVal</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-89"></span><span>    </span><span class="annot"><span class="annottext">Ptr a -&gt; a -&gt; IO ()
+forall a. Storable a =&gt; Ptr a -&gt; a -&gt; IO ()
+</span><span class="hs-identifier hs-var">poke</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282467"><span class="hs-identifier hs-var">ringHead</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679282466"><span class="hs-identifier hs-var">newVal</span></a></span><span>
+</span><span id="line-90"></span><span>    </span><span class="hs-comment">-- touchForeignPtr (ringStart rb)</span><span>
+</span><span id="line-91"></span><span>    </span><span class="annot"><span class="annottext">Ptr a -&gt; IO (Ptr a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(Ptr a -&gt; IO (Ptr a)) -&gt; Ptr a -&gt; IO (Ptr a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Ring a -&gt; Ptr a -&gt; Ptr a
+forall a. Storable a =&gt; Ring a -&gt; Ptr a -&gt; Ptr a
+</span><a href="Streamly.Memory.Ring.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Ring a
+</span><a href="#local-6989586621679282468"><span class="hs-identifier hs-var">rb</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282467"><span class="hs-identifier hs-var">ringHead</span></a></span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span class="hs-comment">-- XXX remove all usage of A.unsafeInlineIO</span><span>
+</span><span id="line-94"></span><span class="hs-comment">--</span><span>
+</span><span id="line-95"></span><span class="hs-comment">-- | Like 'unsafeEqArray' but compares only N bytes instead of entire length of</span><span>
+</span><span id="line-96"></span><span class="hs-comment">-- the ring buffer. This is unsafe because the ringHead Ptr is not checked to</span><span>
+</span><span id="line-97"></span><span class="hs-comment">-- be in range.</span><span>
+</span><span id="line-98"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeEqArrayN"><span class="hs-pragma hs-type">unsafeEqArrayN</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-99"></span><span id="local-6989586621679282464"><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeEqArrayN"><span class="hs-identifier hs-type">unsafeEqArrayN</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282464"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ptr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282464"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Streamly.Internal.Memory.Array.Types.html#Array"><span class="hs-identifier hs-type">A.Array</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282464"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span></span><span>
+</span><span id="line-100"></span><span id="unsafeEqArrayN"><span class="annot"><span class="annottext">unsafeEqArrayN :: Ring a -&gt; Ptr a -&gt; Array a -&gt; Int -&gt; Bool
+</span><a href="Streamly.Memory.Ring.html#unsafeEqArrayN"><span class="hs-identifier hs-var hs-var">unsafeEqArrayN</span></a></span></span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span class="hs-special">{</span><span id="local-6989586621679282462"><span id="local-6989586621679282463"><span class="annot"><span class="annottext">Ptr a
+ForeignPtr a
+ringBound :: Ptr a
+ringStart :: ForeignPtr a
+ringBound :: forall a. Ring a -&gt; Ptr a
+ringStart :: forall a. Ring a -&gt; ForeignPtr a
+</span><a href="#local-6989586621679282462"><span class="hs-glyph hs-var hs-var hs-var hs-var">..</span></a></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679282461"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282461"><span class="hs-identifier hs-var">rh</span></a></span></span><span> </span><span class="annot"><a href="Streamly.Internal.Memory.Array.Types.html#Array"><span class="hs-identifier hs-type">A.Array</span></a></span><span class="hs-special">{</span><span id="local-6989586621679282457"><span id="local-6989586621679282458"><span id="local-6989586621679282459"><span class="annot"><span class="annottext">Ptr a
+ForeignPtr a
+aBound :: forall a. Array a -&gt; Ptr a
+aEnd :: forall a. Array a -&gt; Ptr a
+aStart :: forall a. Array a -&gt; ForeignPtr a
+aBound :: Ptr a
+aEnd :: Ptr a
+aStart :: ForeignPtr a
+</span><a href="Streamly.Internal.Memory.Array.Types.html#aBound"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679282453"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282453"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-101"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282452"><span class="annot"><span class="annottext">res :: Bool
+</span><a href="#local-6989586621679282452"><span class="hs-identifier hs-var hs-var">res</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO Bool -&gt; Bool
+forall a. IO a -&gt; a
+</span><a href="Streamly.Internal.Memory.Array.Types.html#unsafeInlineIO"><span class="hs-identifier hs-var">A.unsafeInlineIO</span></a></span><span> </span><span class="annot"><span class="annottext">(IO Bool -&gt; Bool) -&gt; IO Bool -&gt; Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-102"></span><span>            </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679282450"><span class="annot"><span class="annottext">rs :: Ptr a
+</span><a href="#local-6989586621679282450"><span class="hs-identifier hs-var hs-var">rs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ForeignPtr a -&gt; Ptr a
+forall a. ForeignPtr a -&gt; Ptr a
+</span><span class="hs-identifier hs-var">unsafeForeignPtrToPtr</span></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282463"><span class="hs-identifier hs-var">ringStart</span></a></span><span>
+</span><span id="line-103"></span><span>                </span><span id="local-6989586621679282449"><span class="annot"><span class="annottext">as :: Ptr a
+</span><a href="#local-6989586621679282449"><span class="hs-keyword hs-var hs-var">as</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ForeignPtr a -&gt; Ptr a
+forall a. ForeignPtr a -&gt; Ptr a
+</span><span class="hs-identifier hs-var">unsafeForeignPtrToPtr</span></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282459"><span class="hs-identifier hs-var">aStart</span></a></span><span>
+</span><span id="line-104"></span><span>            </span><span class="annot"><span class="annottext">Bool -&gt; IO () -&gt; IO ()
+forall a. HasCallStack =&gt; Bool -&gt; a -&gt; a
+</span><span class="hs-identifier hs-var hs-var">assert</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282457"><span class="hs-identifier hs-var">aBound</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr a -&gt; Int
+forall a b. Ptr a -&gt; Ptr b -&gt; Int
+</span><span class="hs-operator hs-var">`minusPtr`</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282449"><span class="hs-keyword hs-var">as</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;=</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282462"><span class="hs-identifier hs-var">ringBound</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr a -&gt; Int
+forall a b. Ptr a -&gt; Ptr b -&gt; Int
+</span><span class="hs-operator hs-var">`minusPtr`</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282450"><span class="hs-identifier hs-var">rs</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-105"></span><span>            </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679282448"><span class="annot"><span class="annottext">len :: Int
+</span><a href="#local-6989586621679282448"><span class="hs-identifier hs-var hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282462"><span class="hs-identifier hs-var">ringBound</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr a -&gt; Int
+forall a b. Ptr a -&gt; Ptr b -&gt; Int
+</span><span class="hs-operator hs-var">`minusPtr`</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282461"><span class="hs-identifier hs-var">rh</span></a></span><span>
+</span><span id="line-106"></span><span>            </span><span id="local-6989586621679282447"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679282447"><span class="hs-identifier hs-var">r1</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Ptr Word8 -&gt; Ptr Word8 -&gt; Int -&gt; IO Bool
+</span><a href="Streamly.Internal.Memory.Array.Types.html#memcmp"><span class="hs-identifier hs-var">A.memcmp</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr Word8
+forall a b. Ptr a -&gt; Ptr b
+</span><span class="hs-identifier hs-var">castPtr</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282461"><span class="hs-identifier hs-var">rh</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr Word8
+forall a b. Ptr a -&gt; Ptr b
+</span><span class="hs-identifier hs-var">castPtr</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282449"><span class="hs-keyword hs-var">as</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-identifier hs-var">min</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282448"><span class="hs-identifier hs-var">len</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282453"><span class="hs-identifier hs-var">n</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-107"></span><span>            </span><span id="local-6989586621679282444"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679282444"><span class="hs-identifier hs-var">r2</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282453"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282448"><span class="hs-identifier hs-var">len</span></a></span><span>
+</span><span id="line-108"></span><span>                </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Ptr Word8 -&gt; Ptr Word8 -&gt; Int -&gt; IO Bool
+</span><a href="Streamly.Internal.Memory.Array.Types.html#memcmp"><span class="hs-identifier hs-var">A.memcmp</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr Word8
+forall a b. Ptr a -&gt; Ptr b
+</span><span class="hs-identifier hs-var">castPtr</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282450"><span class="hs-identifier hs-var">rs</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr Any -&gt; Ptr Word8
+forall a b. Ptr a -&gt; Ptr b
+</span><span class="hs-identifier hs-var">castPtr</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282449"><span class="hs-keyword hs-var">as</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Int -&gt; Ptr Any
+forall a b. Ptr a -&gt; Int -&gt; Ptr b
+</span><span class="hs-operator hs-var">`plusPtr`</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282448"><span class="hs-identifier hs-var">len</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-109"></span><span>                              </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Ord a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-identifier hs-var">min</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282461"><span class="hs-identifier hs-var">rh</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr a -&gt; Int
+forall a b. Ptr a -&gt; Ptr b -&gt; Int
+</span><span class="hs-operator hs-var">`minusPtr`</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282450"><span class="hs-identifier hs-var">rs</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282453"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-glyph hs-var">-</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282448"><span class="hs-identifier hs-var">len</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-110"></span><span>                </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; IO Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span>
+</span><span id="line-111"></span><span>            </span><span class="hs-comment">-- XXX enable these, check perf impact</span><span>
+</span><span id="line-112"></span><span>            </span><span class="hs-comment">-- touchForeignPtr ringStart</span><span>
+</span><span id="line-113"></span><span>            </span><span class="hs-comment">-- touchForeignPtr aStart</span><span>
+</span><span id="line-114"></span><span>            </span><span class="annot"><span class="annottext">Bool -&gt; IO Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679282447"><span class="hs-identifier hs-var">r1</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679282444"><span class="hs-identifier hs-var">r2</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-115"></span><span>    </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679282452"><span class="hs-identifier hs-var">res</span></a></span><span>
+</span><span id="line-116"></span><span>
+</span><span id="line-117"></span><span class="hs-comment">-- | Byte compare the entire length of ringBuffer with the given array,</span><span>
+</span><span id="line-118"></span><span class="hs-comment">-- starting at the supplied ringHead pointer.  Returns true if the Array and</span><span>
+</span><span id="line-119"></span><span class="hs-comment">-- the ringBuffer have identical contents.</span><span>
+</span><span id="line-120"></span><span class="hs-comment">--</span><span>
+</span><span id="line-121"></span><span class="hs-comment">-- This is unsafe because the ringHead Ptr is not checked to be in range. The</span><span>
+</span><span id="line-122"></span><span class="hs-comment">-- supplied array must be equal to or bigger than the ringBuffer, ARRAY BOUNDS</span><span>
+</span><span id="line-123"></span><span class="hs-comment">-- ARE NOT CHECKED.</span><span>
+</span><span id="line-124"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeEqArray"><span class="hs-pragma hs-type">unsafeEqArray</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-125"></span><span id="local-6989586621679282441"><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeEqArray"><span class="hs-identifier hs-type">unsafeEqArray</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282441"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ptr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282441"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Streamly.Internal.Memory.Array.Types.html#Array"><span class="hs-identifier hs-type">A.Array</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282441"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span></span><span>
+</span><span id="line-126"></span><span id="unsafeEqArray"><span class="annot"><span class="annottext">unsafeEqArray :: Ring a -&gt; Ptr a -&gt; Array a -&gt; Bool
+</span><a href="Streamly.Memory.Ring.html#unsafeEqArray"><span class="hs-identifier hs-var hs-var">unsafeEqArray</span></a></span></span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span class="hs-special">{</span><span id="local-6989586621679282439"><span id="local-6989586621679282440"><span class="annot"><span class="annottext">Ptr a
+ForeignPtr a
+ringBound :: Ptr a
+ringStart :: ForeignPtr a
+ringBound :: forall a. Ring a -&gt; Ptr a
+ringStart :: forall a. Ring a -&gt; ForeignPtr a
+</span><a href="#local-6989586621679282439"><span class="hs-glyph hs-var hs-var hs-var hs-var">..</span></a></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679282438"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282438"><span class="hs-identifier hs-var">rh</span></a></span></span><span> </span><span class="annot"><a href="Streamly.Internal.Memory.Array.Types.html#Array"><span class="hs-identifier hs-type">A.Array</span></a></span><span class="hs-special">{</span><span id="local-6989586621679282435"><span id="local-6989586621679282436"><span id="local-6989586621679282437"><span class="annot"><span class="annottext">Ptr a
+ForeignPtr a
+aBound :: Ptr a
+aEnd :: Ptr a
+aStart :: ForeignPtr a
+aBound :: forall a. Array a -&gt; Ptr a
+aEnd :: forall a. Array a -&gt; Ptr a
+aStart :: forall a. Array a -&gt; ForeignPtr a
+</span><a href="#local-6989586621679282435"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-127"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282434"><span class="annot"><span class="annottext">res :: Bool
+</span><a href="#local-6989586621679282434"><span class="hs-identifier hs-var hs-var">res</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO Bool -&gt; Bool
+forall a. IO a -&gt; a
+</span><a href="Streamly.Internal.Memory.Array.Types.html#unsafeInlineIO"><span class="hs-identifier hs-var">A.unsafeInlineIO</span></a></span><span> </span><span class="annot"><span class="annottext">(IO Bool -&gt; Bool) -&gt; IO Bool -&gt; Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-128"></span><span>            </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679282433"><span class="annot"><span class="annottext">rs :: Ptr a
+</span><a href="#local-6989586621679282433"><span class="hs-identifier hs-var hs-var">rs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ForeignPtr a -&gt; Ptr a
+forall a. ForeignPtr a -&gt; Ptr a
+</span><span class="hs-identifier hs-var">unsafeForeignPtrToPtr</span></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282440"><span class="hs-identifier hs-var">ringStart</span></a></span><span>
+</span><span id="line-129"></span><span>            </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679282432"><span class="annot"><span class="annottext">as :: Ptr a
+</span><a href="#local-6989586621679282432"><span class="hs-keyword hs-var hs-var">as</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ForeignPtr a -&gt; Ptr a
+forall a. ForeignPtr a -&gt; Ptr a
+</span><span class="hs-identifier hs-var">unsafeForeignPtrToPtr</span></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282437"><span class="hs-identifier hs-var">aStart</span></a></span><span>
+</span><span id="line-130"></span><span>            </span><span class="annot"><span class="annottext">Bool -&gt; IO () -&gt; IO ()
+forall a. HasCallStack =&gt; Bool -&gt; a -&gt; a
+</span><span class="hs-identifier hs-var hs-var">assert</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282435"><span class="hs-identifier hs-var">aBound</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr a -&gt; Int
+forall a b. Ptr a -&gt; Ptr b -&gt; Int
+</span><span class="hs-operator hs-var">`minusPtr`</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282432"><span class="hs-keyword hs-var">as</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;=</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282439"><span class="hs-identifier hs-var">ringBound</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr a -&gt; Int
+forall a b. Ptr a -&gt; Ptr b -&gt; Int
+</span><span class="hs-operator hs-var">`minusPtr`</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282433"><span class="hs-identifier hs-var">rs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-131"></span><span>                   </span><span class="hs-special">(</span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-132"></span><span>            </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679282431"><span class="annot"><span class="annottext">len :: Int
+</span><a href="#local-6989586621679282431"><span class="hs-identifier hs-var hs-var">len</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282439"><span class="hs-identifier hs-var">ringBound</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr a -&gt; Int
+forall a b. Ptr a -&gt; Ptr b -&gt; Int
+</span><span class="hs-operator hs-var">`minusPtr`</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282438"><span class="hs-identifier hs-var">rh</span></a></span><span>
+</span><span id="line-133"></span><span>            </span><span id="local-6989586621679282430"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679282430"><span class="hs-identifier hs-var">r1</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Ptr Word8 -&gt; Ptr Word8 -&gt; Int -&gt; IO Bool
+</span><a href="Streamly.Internal.Memory.Array.Types.html#memcmp"><span class="hs-identifier hs-var">A.memcmp</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr Word8
+forall a b. Ptr a -&gt; Ptr b
+</span><span class="hs-identifier hs-var">castPtr</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282438"><span class="hs-identifier hs-var">rh</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr Word8
+forall a b. Ptr a -&gt; Ptr b
+</span><span class="hs-identifier hs-var">castPtr</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282432"><span class="hs-keyword hs-var">as</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282431"><span class="hs-identifier hs-var">len</span></a></span><span>
+</span><span id="line-134"></span><span>            </span><span id="local-6989586621679282429"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679282429"><span class="hs-identifier hs-var">r2</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Ptr Word8 -&gt; Ptr Word8 -&gt; Int -&gt; IO Bool
+</span><a href="Streamly.Internal.Memory.Array.Types.html#memcmp"><span class="hs-identifier hs-var">A.memcmp</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr Word8
+forall a b. Ptr a -&gt; Ptr b
+</span><span class="hs-identifier hs-var">castPtr</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282433"><span class="hs-identifier hs-var">rs</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr Any -&gt; Ptr Word8
+forall a b. Ptr a -&gt; Ptr b
+</span><span class="hs-identifier hs-var">castPtr</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282432"><span class="hs-keyword hs-var">as</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Int -&gt; Ptr Any
+forall a b. Ptr a -&gt; Int -&gt; Ptr b
+</span><span class="hs-operator hs-var">`plusPtr`</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679282431"><span class="hs-identifier hs-var">len</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-135"></span><span>                           </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282438"><span class="hs-identifier hs-var">rh</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr a -&gt; Int
+forall a b. Ptr a -&gt; Ptr b -&gt; Int
+</span><span class="hs-operator hs-var">`minusPtr`</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282433"><span class="hs-identifier hs-var">rs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-136"></span><span>            </span><span class="hs-comment">-- XXX enable these, check perf impact</span><span>
+</span><span id="line-137"></span><span>            </span><span class="hs-comment">-- touchForeignPtr ringStart</span><span>
+</span><span id="line-138"></span><span>            </span><span class="hs-comment">-- touchForeignPtr aStart</span><span>
+</span><span id="line-139"></span><span>            </span><span class="annot"><span class="annottext">Bool -&gt; IO Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679282430"><span class="hs-identifier hs-var">r1</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679282429"><span class="hs-identifier hs-var">r2</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-140"></span><span>    </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679282434"><span class="hs-identifier hs-var">res</span></a></span><span>
+</span><span id="line-141"></span><span>
+</span><span id="line-142"></span><span class="hs-comment">-- XXX use MonadIO</span><span>
+</span><span id="line-143"></span><span class="hs-comment">--</span><span>
+</span><span id="line-144"></span><span class="hs-comment">-- | Fold the buffer starting from ringStart up to the given 'Ptr' using a pure</span><span>
+</span><span id="line-145"></span><span class="hs-comment">-- step function. This is useful to fold the items in the ring when the ring is</span><span>
+</span><span id="line-146"></span><span class="hs-comment">-- not full. The supplied pointer is usually the end of the ring.</span><span>
+</span><span id="line-147"></span><span class="hs-comment">--</span><span>
+</span><span id="line-148"></span><span class="hs-comment">-- Unsafe because the supplied Ptr is not checked to be in range.</span><span>
+</span><span id="line-149"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeFoldRing"><span class="hs-pragma hs-type">unsafeFoldRing</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-150"></span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeFoldRing"><span class="hs-identifier hs-type">unsafeFoldRing</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679282428"><span class="annot"><a href="#local-6989586621679282428"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span id="local-6989586621679282427"><span class="annot"><a href="#local-6989586621679282427"><span class="hs-identifier hs-type">b</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Storable</span></span><span> </span><span class="annot"><a href="#local-6989586621679282428"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-151"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ptr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282428"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679282427"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282428"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282427"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282427"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282428"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282427"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-152"></span><span id="unsafeFoldRing"><span class="annot"><span class="annottext">unsafeFoldRing :: Ptr a -&gt; (b -&gt; a -&gt; b) -&gt; b -&gt; Ring a -&gt; b
+</span><a href="Streamly.Memory.Ring.html#unsafeFoldRing"><span class="hs-identifier hs-var hs-var">unsafeFoldRing</span></a></span></span><span> </span><span id="local-6989586621679282426"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282426"><span class="hs-identifier hs-var">ptr</span></a></span></span><span> </span><span id="local-6989586621679282425"><span class="annot"><span class="annottext">b -&gt; a -&gt; b
+</span><a href="#local-6989586621679282425"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679282424"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282424"><span class="hs-identifier hs-var">z</span></a></span></span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span class="hs-special">{</span><span id="local-6989586621679282422"><span id="local-6989586621679282423"><span class="annot"><span class="annottext">Ptr a
+ForeignPtr a
+ringBound :: Ptr a
+ringStart :: ForeignPtr a
+ringBound :: forall a. Ring a -&gt; Ptr a
+ringStart :: forall a. Ring a -&gt; ForeignPtr a
+</span><a href="#local-6989586621679282422"><span class="hs-glyph hs-var hs-var hs-var hs-var">..</span></a></span></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-153"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282421"><span class="annot"><span class="annottext">res :: b
+</span><a href="#local-6989586621679282421"><span class="hs-identifier hs-var hs-var">res</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO b -&gt; b
+forall a. IO a -&gt; a
+</span><a href="Streamly.Internal.Memory.Array.Types.html#unsafeInlineIO"><span class="hs-identifier hs-var">A.unsafeInlineIO</span></a></span><span> </span><span class="annot"><span class="annottext">(IO b -&gt; b) -&gt; IO b -&gt; b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a -&gt; (Ptr a -&gt; IO b) -&gt; IO b
+forall a b. ForeignPtr a -&gt; (Ptr a -&gt; IO b) -&gt; IO b
+</span><span class="hs-identifier hs-var">withForeignPtr</span></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282423"><span class="hs-identifier hs-var">ringStart</span></a></span><span> </span><span class="annot"><span class="annottext">((Ptr a -&gt; IO b) -&gt; IO b) -&gt; (Ptr a -&gt; IO b) -&gt; IO b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679282420"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282420"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-154"></span><span>                    </span><span class="annot"><span class="annottext">b -&gt; Ptr a -&gt; Ptr a -&gt; IO b
+</span><a href="#local-6989586621679282419"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282424"><span class="hs-identifier hs-var">z</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282420"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282426"><span class="hs-identifier hs-var">ptr</span></a></span><span>
+</span><span id="line-155"></span><span>    </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282421"><span class="hs-identifier hs-var">res</span></a></span><span>
+</span><span id="line-156"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-157"></span><span>      </span><span id="local-6989586621679282419"><span class="annot"><span class="annottext">go :: b -&gt; Ptr a -&gt; Ptr a -&gt; IO b
+</span><a href="#local-6989586621679282419"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282418"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282418"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282417"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282417"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282416"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282416"><span class="hs-identifier hs-var">q</span></a></span></span><span>
+</span><span id="line-158"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282417"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr a -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282416"><span class="hs-identifier hs-var">q</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">b -&gt; IO b
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282418"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-159"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-160"></span><span>            </span><span id="local-6989586621679282415"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679282415"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; IO a
+forall a. Storable a =&gt; Ptr a -&gt; IO a
+</span><span class="hs-identifier hs-var">peek</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282417"><span class="hs-identifier hs-var">p</span></a></span><span>
+</span><span id="line-161"></span><span>            </span><span class="annot"><span class="annottext">b -&gt; Ptr a -&gt; Ptr a -&gt; IO b
+</span><a href="#local-6989586621679282419"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">b -&gt; a -&gt; b
+</span><a href="#local-6989586621679282425"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282418"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679282415"><span class="hs-identifier hs-var">x</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282417"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Int -&gt; Ptr a
+forall a b. Ptr a -&gt; Int -&gt; Ptr b
+</span><span class="hs-operator hs-var">`plusPtr`</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; Int
+forall a. Storable a =&gt; a -&gt; Int
+</span><span class="hs-identifier hs-var">sizeOf</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+forall a. HasCallStack =&gt; a
+</span><span class="hs-identifier hs-var">undefined</span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679282428"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282416"><span class="hs-identifier hs-var">q</span></a></span><span>
+</span><span id="line-162"></span><span>
+</span><span id="line-163"></span><span class="hs-comment">-- XXX Can we remove MonadIO here?</span><span>
+</span><span id="line-164"></span><span id="local-6989586621679282507"><span id="local-6989586621679282508"><span id="local-6989586621679282509"><span class="annot"><a href="Streamly.Memory.Ring.html#withForeignPtrM"><span class="hs-identifier hs-type">withForeignPtrM</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679282509"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ForeignPtr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282508"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Ptr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282508"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282509"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282507"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282509"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282507"><span class="hs-identifier hs-type">b</span></a></span></span></span></span><span>
+</span><span id="line-165"></span><span id="withForeignPtrM"><span class="annot"><span class="annottext">withForeignPtrM :: ForeignPtr a -&gt; (Ptr a -&gt; m b) -&gt; m b
+</span><a href="Streamly.Memory.Ring.html#withForeignPtrM"><span class="hs-identifier hs-var hs-var">withForeignPtrM</span></a></span></span><span> </span><span id="local-6989586621679282412"><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282412"><span class="hs-identifier hs-var">fp</span></a></span></span><span> </span><span id="local-6989586621679282411"><span class="annot"><span class="annottext">Ptr a -&gt; m b
+</span><a href="#local-6989586621679282411"><span class="hs-identifier hs-var">fn</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-166"></span><span>    </span><span id="local-6989586621679282410"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282410"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; m b
+</span><a href="#local-6989586621679282411"><span class="hs-identifier hs-var">fn</span></a></span><span> </span><span class="annot"><span class="annottext">(Ptr a -&gt; m b) -&gt; Ptr a -&gt; m b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a -&gt; Ptr a
+forall a. ForeignPtr a -&gt; Ptr a
+</span><span class="hs-identifier hs-var">unsafeForeignPtrToPtr</span></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282412"><span class="hs-identifier hs-var">fp</span></a></span><span>
+</span><span id="line-167"></span><span>    </span><span class="annot"><span class="annottext">IO () -&gt; m ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; m ()) -&gt; IO () -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a -&gt; IO ()
+forall a. ForeignPtr a -&gt; IO ()
+</span><span class="hs-identifier hs-var">touchForeignPtr</span></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282412"><span class="hs-identifier hs-var">fp</span></a></span><span>
+</span><span id="line-168"></span><span>    </span><span class="annot"><span class="annottext">b -&gt; m b
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282410"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-169"></span><span>
+</span><span id="line-170"></span><span class="hs-comment">-- | Like unsafeFoldRing but with a monadic step function.</span><span>
+</span><span id="line-171"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeFoldRingM"><span class="hs-pragma hs-type">unsafeFoldRingM</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-172"></span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeFoldRingM"><span class="hs-identifier hs-type">unsafeFoldRingM</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679282408"><span class="annot"><a href="#local-6989586621679282408"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span id="local-6989586621679282407"><span class="annot"><a href="#local-6989586621679282407"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span id="local-6989586621679282406"><span class="annot"><a href="#local-6989586621679282406"><span class="hs-identifier hs-type">b</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679282408"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Storable</span></span><span> </span><span class="annot"><a href="#local-6989586621679282407"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-173"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ptr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282407"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679282406"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282407"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282408"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282406"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282406"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282407"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282408"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282406"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-174"></span><span id="unsafeFoldRingM"><span class="annot"><span class="annottext">unsafeFoldRingM :: Ptr a -&gt; (b -&gt; a -&gt; m b) -&gt; b -&gt; Ring a -&gt; m b
+</span><a href="Streamly.Memory.Ring.html#unsafeFoldRingM"><span class="hs-identifier hs-var hs-var">unsafeFoldRingM</span></a></span></span><span> </span><span id="local-6989586621679282405"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282405"><span class="hs-identifier hs-var">ptr</span></a></span></span><span> </span><span id="local-6989586621679282404"><span class="annot"><span class="annottext">b -&gt; a -&gt; m b
+</span><a href="#local-6989586621679282404"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679282403"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282403"><span class="hs-identifier hs-var">z</span></a></span></span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span> </span><span class="hs-special">{</span><span id="local-6989586621679282401"><span id="local-6989586621679282402"><span class="annot"><span class="annottext">Ptr a
+ForeignPtr a
+ringBound :: Ptr a
+ringStart :: ForeignPtr a
+ringBound :: forall a. Ring a -&gt; Ptr a
+ringStart :: forall a. Ring a -&gt; ForeignPtr a
+</span><a href="#local-6989586621679282401"><span class="hs-glyph hs-var hs-var hs-var hs-var">..</span></a></span></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-175"></span><span>    </span><span class="annot"><span class="annottext">ForeignPtr a -&gt; (Ptr a -&gt; m b) -&gt; m b
+forall (m :: * -&gt; *) a b.
+MonadIO m =&gt;
+ForeignPtr a -&gt; (Ptr a -&gt; m b) -&gt; m b
+</span><a href="Streamly.Memory.Ring.html#withForeignPtrM"><span class="hs-identifier hs-var">withForeignPtrM</span></a></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282402"><span class="hs-identifier hs-var">ringStart</span></a></span><span> </span><span class="annot"><span class="annottext">((Ptr a -&gt; m b) -&gt; m b) -&gt; (Ptr a -&gt; m b) -&gt; m b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679282400"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282400"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">b -&gt; Ptr a -&gt; Ptr a -&gt; m b
+</span><a href="#local-6989586621679282399"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282403"><span class="hs-identifier hs-var">z</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282400"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282405"><span class="hs-identifier hs-var">ptr</span></a></span><span>
+</span><span id="line-176"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-177"></span><span>    </span><span id="local-6989586621679282399"><span class="annot"><span class="annottext">go :: b -&gt; Ptr a -&gt; Ptr a -&gt; m b
+</span><a href="#local-6989586621679282399"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282398"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282398"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282397"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282397"><span class="hs-identifier hs-var">start</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282396"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282396"><span class="hs-identifier hs-var">end</span></a></span></span><span>
+</span><span id="line-178"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282397"><span class="hs-identifier hs-var">start</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr a -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282396"><span class="hs-identifier hs-var">end</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">b -&gt; m b
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282398"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-179"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-180"></span><span>            </span><span class="hs-keyword">let</span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282395"><span class="annot"><span class="annottext">x :: a
+</span><a href="#local-6989586621679282395"><span class="hs-identifier hs-var hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO a -&gt; a
+forall a. IO a -&gt; a
+</span><a href="Streamly.Internal.Memory.Array.Types.html#unsafeInlineIO"><span class="hs-identifier hs-var">A.unsafeInlineIO</span></a></span><span> </span><span class="annot"><span class="annottext">(IO a -&gt; a) -&gt; IO a -&gt; a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; IO a
+forall a. Storable a =&gt; Ptr a -&gt; IO a
+</span><span class="hs-identifier hs-var">peek</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282397"><span class="hs-identifier hs-var">start</span></a></span><span>
+</span><span id="line-181"></span><span>            </span><span id="local-6989586621679282394"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282394"><span class="hs-identifier hs-var">acc'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">b -&gt; a -&gt; m b
+</span><a href="#local-6989586621679282404"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282398"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679282395"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-182"></span><span>            </span><span class="annot"><span class="annottext">b -&gt; Ptr a -&gt; Ptr a -&gt; m b
+</span><a href="#local-6989586621679282399"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282394"><span class="hs-identifier hs-var">acc'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282397"><span class="hs-identifier hs-var">start</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Int -&gt; Ptr a
+forall a b. Ptr a -&gt; Int -&gt; Ptr b
+</span><span class="hs-operator hs-var">`plusPtr`</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; Int
+forall a. Storable a =&gt; a -&gt; Int
+</span><span class="hs-identifier hs-var">sizeOf</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+forall a. HasCallStack =&gt; a
+</span><span class="hs-identifier hs-var">undefined</span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679282407"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282396"><span class="hs-identifier hs-var">end</span></a></span><span>
+</span><span id="line-183"></span><span>
+</span><span id="line-184"></span><span class="hs-comment">-- | Fold the entire length of a ring buffer starting at the supplied ringHead</span><span>
+</span><span id="line-185"></span><span class="hs-comment">-- pointer.  Assuming the supplied ringHead pointer points to the oldest item,</span><span>
+</span><span id="line-186"></span><span class="hs-comment">-- this would fold the ring starting from the oldest item to the newest item in</span><span>
+</span><span id="line-187"></span><span class="hs-comment">-- the ring.</span><span>
+</span><span id="line-188"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeFoldRingFullM"><span class="hs-pragma hs-type">unsafeFoldRingFullM</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-189"></span><span class="annot"><a href="Streamly.Memory.Ring.html#unsafeFoldRingFullM"><span class="hs-identifier hs-type">unsafeFoldRingFullM</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679282393"><span class="annot"><a href="#local-6989586621679282393"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span id="local-6989586621679282392"><span class="annot"><a href="#local-6989586621679282392"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span id="local-6989586621679282391"><span class="annot"><a href="#local-6989586621679282391"><span class="hs-identifier hs-type">b</span></a></span></span><span class="hs-operator">.</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679282393"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Storable</span></span><span> </span><span class="annot"><a href="#local-6989586621679282392"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-190"></span><span>    </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ptr</span></span><span> </span><span class="annot"><a href="#local-6989586621679282392"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679282391"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282392"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282393"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282391"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282391"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282392"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679282393"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679282391"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-191"></span><span id="unsafeFoldRingFullM"><span class="annot"><span class="annottext">unsafeFoldRingFullM :: Ptr a -&gt; (b -&gt; a -&gt; m b) -&gt; b -&gt; Ring a -&gt; m b
+</span><a href="Streamly.Memory.Ring.html#unsafeFoldRingFullM"><span class="hs-identifier hs-var hs-var">unsafeFoldRingFullM</span></a></span></span><span> </span><span id="local-6989586621679282390"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282390"><span class="hs-identifier hs-var">rh</span></a></span></span><span> </span><span id="local-6989586621679282389"><span class="annot"><span class="annottext">b -&gt; a -&gt; m b
+</span><a href="#local-6989586621679282389"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679282388"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282388"><span class="hs-identifier hs-var">z</span></a></span></span><span> </span><span id="local-6989586621679282387"><span class="annot"><span class="annottext">rb :: Ring a
+</span><a href="#local-6989586621679282387"><span class="hs-identifier hs-var">rb</span></a></span></span><span class="hs-glyph">@</span><span class="annot"><a href="Streamly.Memory.Ring.html#Ring"><span class="hs-identifier hs-type">Ring</span></a></span><span> </span><span class="hs-special">{</span><span id="local-6989586621679282385"><span id="local-6989586621679282386"><span class="annot"><span class="annottext">Ptr a
+ForeignPtr a
+ringBound :: Ptr a
+ringStart :: ForeignPtr a
+ringBound :: forall a. Ring a -&gt; Ptr a
+ringStart :: forall a. Ring a -&gt; ForeignPtr a
+</span><a href="#local-6989586621679282385"><span class="hs-glyph hs-var hs-var hs-var hs-var">..</span></a></span></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-192"></span><span>    </span><span class="annot"><span class="annottext">ForeignPtr a -&gt; (Ptr a -&gt; m b) -&gt; m b
+forall (m :: * -&gt; *) a b.
+MonadIO m =&gt;
+ForeignPtr a -&gt; (Ptr a -&gt; m b) -&gt; m b
+</span><a href="Streamly.Memory.Ring.html#withForeignPtrM"><span class="hs-identifier hs-var">withForeignPtrM</span></a></span><span> </span><span class="annot"><span class="annottext">ForeignPtr a
+</span><a href="#local-6989586621679282386"><span class="hs-identifier hs-var">ringStart</span></a></span><span> </span><span class="annot"><span class="annottext">((Ptr a -&gt; m b) -&gt; m b) -&gt; (Ptr a -&gt; m b) -&gt; m b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span class="annot"><span class="annottext">Ptr a
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">b -&gt; Ptr a -&gt; m b
+</span><a href="#local-6989586621679282384"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282388"><span class="hs-identifier hs-var">z</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282390"><span class="hs-identifier hs-var">rh</span></a></span><span>
+</span><span id="line-193"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-194"></span><span>    </span><span id="local-6989586621679282384"><span class="annot"><span class="annottext">go :: b -&gt; Ptr a -&gt; m b
+</span><a href="#local-6989586621679282384"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282383"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282383"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282382"><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282382"><span class="hs-identifier hs-var">start</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-195"></span><span>        </span><span class="hs-keyword">let</span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679282381"><span class="annot"><span class="annottext">x :: a
+</span><a href="#local-6989586621679282381"><span class="hs-identifier hs-var hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO a -&gt; a
+forall a. IO a -&gt; a
+</span><a href="Streamly.Internal.Memory.Array.Types.html#unsafeInlineIO"><span class="hs-identifier hs-var">A.unsafeInlineIO</span></a></span><span> </span><span class="annot"><span class="annottext">(IO a -&gt; a) -&gt; IO a -&gt; a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; IO a
+forall a. Storable a =&gt; Ptr a -&gt; IO a
+</span><span class="hs-identifier hs-var">peek</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282382"><span class="hs-identifier hs-var">start</span></a></span><span>
+</span><span id="line-196"></span><span>        </span><span id="local-6989586621679282380"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282380"><span class="hs-identifier hs-var">acc'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">b -&gt; a -&gt; m b
+</span><a href="#local-6989586621679282389"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282383"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679282381"><span class="hs-identifier hs-var">x</span></a></span><span>
+</span><span id="line-197"></span><span>        </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679282379"><span class="annot"><span class="annottext">ptr :: Ptr a
+</span><a href="#local-6989586621679282379"><span class="hs-identifier hs-var hs-var">ptr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Ring a -&gt; Ptr a -&gt; Ptr a
+forall a. Storable a =&gt; Ring a -&gt; Ptr a -&gt; Ptr a
+</span><a href="Streamly.Memory.Ring.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Ring a
+</span><a href="#local-6989586621679282387"><span class="hs-identifier hs-var">rb</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282382"><span class="hs-identifier hs-var">start</span></a></span><span>
+</span><span id="line-198"></span><span>        </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282379"><span class="hs-identifier hs-var">ptr</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a -&gt; Ptr a -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282390"><span class="hs-identifier hs-var">rh</span></a></span><span>
+</span><span id="line-199"></span><span>            </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">b -&gt; m b
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282380"><span class="hs-identifier hs-var">acc'</span></a></span><span>
+</span><span id="line-200"></span><span>            </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">b -&gt; Ptr a -&gt; m b
+</span><a href="#local-6989586621679282384"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679282380"><span class="hs-identifier hs-var">acc'</span></a></span><span> </span><span class="annot"><span class="annottext">Ptr a
+</span><a href="#local-6989586621679282379"><span class="hs-identifier hs-var">ptr</span></a></span><span>
+</span><span id="line-201"></span></pre></body></html>
