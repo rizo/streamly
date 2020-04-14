@@ -1282,7 +1282,7 @@ foldr1 f m = S.foldr1 f (toStreamS m)
 -- @since 0.2.0
 {-# DEPRECATED foldx "Please use foldl' followed by fmap instead." #-}
 {-# INLINE foldx #-}
-foldx :: Monad m => (x -> a -> x) -> x -> (x -> b) -> SerialT m a -> m b
+foldx :: Monad m => (x -> a -> FL.Step x b) -> x -> (x -> b) -> SerialT m a -> m b
 foldx = P.foldlx'
 
 -- | Left associative/strict push fold. @foldl' reduce initial stream@ invokes
@@ -1317,7 +1317,7 @@ foldl1' step m = do
 -- @since 0.2.0
 {-# DEPRECATED foldxM "Please use foldlM' followed by fmap instead." #-}
 {-# INLINE foldxM #-}
-foldxM :: Monad m => (x -> a -> m x) -> m x -> (x -> m b) -> SerialT m a -> m b
+foldxM :: Monad m => (x -> a -> m (FL.Step x b)) -> m x -> (x -> m b) -> SerialT m a -> m b
 foldxM = P.foldlMx'
 
 -- | Like 'foldl'' but with a monadic step function.
@@ -1923,7 +1923,7 @@ toHandle h = go
 -- /Internal/
 {-# INLINE toStream #-}
 toStream :: Monad m => Fold m a (SerialT Identity a)
-toStream = Fold (\f x -> return $ f . (x `K.cons`))
+toStream = Fold (\f x -> return $ FL.Yield $ f . (x `K.cons`))
                 (return id)
                 (return . ($ K.nil))
 
@@ -1941,7 +1941,7 @@ toStream = Fold (\f x -> return $ f . (x `K.cons`))
 --  xn : ... : x2 : x1 : []
 {-# INLINABLE toStreamRev #-}
 toStreamRev :: Monad m => Fold m a (SerialT Identity a)
-toStreamRev = Fold (\xs x -> return $ x `K.cons` xs) (return K.nil) return
+toStreamRev = Fold (\xs x -> return $ FL.Yield $ x `K.cons` xs) (return K.nil) return
 
 -- | Convert a stream to a pure stream.
 --
@@ -2117,7 +2117,7 @@ transform pipe xs = fromStreamD $ D.transform pipe (toStreamD xs)
 -- /Since 0.2.0/
 {-# DEPRECATED scanx "Please use scanl followed by map instead." #-}
 {-# INLINE scanx #-}
-scanx :: (IsStream t, Monad m) => (x -> a -> x) -> x -> (x -> b) -> t m a -> t m b
+scanx :: (IsStream t, Monad m) => (x -> a -> (FL.Step x b)) -> x -> (x -> b) -> t m a -> t m b
 scanx = P.scanlx'
 
 -- XXX this needs to be concurrent
@@ -4579,14 +4579,14 @@ classifySessionsBy tick tmout reset ejectPred
         let curTime = max sessionEventTime timestamp
             accumulate v = do
                 old <- case v of
-                    Nothing -> initial
+                    Nothing -> FL.initialTSM initial
                     Just (Tuple' _ acc) -> return acc
-                new <- step old value
+                new <- FL.stepWS step old value
                 return $ Tuple' timestamp new
             mOld = Map.lookup key sessionKeyValueMap
 
         acc@(Tuple' _ fres) <- accumulate mOld
-        res <- extract fres
+        res <- FL.doneWS extract fres
         case res of
             Left x -> do
                 -- deleting a key from the heap is expensive, so we never
@@ -4664,7 +4664,7 @@ classifySessionsBy tick tmout reset ejectPred
 
     -- delete from map and output the fold accumulator
     ejectEntry hp mp out cnt acc key = do
-        sess <- extract acc
+        sess <- FL.doneWS extract acc
         let out1 = (key, fromEither sess) `K.cons` out
         let mp1 = Map.delete key mp
         return (hp, mp1, out1, cnt - 1)
