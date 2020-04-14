@@ -22,9 +22,10 @@ module Streamly.Internal.Data.Parser.ParserD
 
     -- First order parsers
     -- * Accumulators
-    , fromFold
+--    , fromFold
     , toParserK
     , fromParserK
+{-
     , any
     , all
     , yield
@@ -159,6 +160,7 @@ module Streamly.Internal.Data.Parser.ParserD
     -- , retryMax    -- try N times
     -- , retryUntil  -- try until successful
     -- , retryUntilN -- try until successful n times
+-}
     )
 where
 
@@ -175,7 +177,7 @@ import qualified Streamly.Internal.Data.Zipper as Z
 import Streamly.Internal.Data.Parser.ParserD.Tee
 import Streamly.Internal.Data.Parser.ParserD.Types
 import Streamly.Internal.Data.Strict
-
+{-
 -------------------------------------------------------------------------------
 -- Upgrade folds to parses
 -------------------------------------------------------------------------------
@@ -195,7 +197,7 @@ fromFold (Fold fstep finitial fextract) = Parser step finitial fextract
 -------------------------------------------------------------------------------
 -- Convert to and from CPS style parser representation
 -------------------------------------------------------------------------------
-
+-}
 -- | Convert a direct style 'Parser' to a CPS style 'K.Parser'.
 --
 -- /Internal/
@@ -220,6 +222,7 @@ fromParserK _ = Parser step initial extract
     step () _ = error "fromParserK: unimplemented"
     extract () = error "fromParserK: unimplemented"
 
+{-
 #ifndef DISABLE_FUSION
 {-# RULES "fromParserK/toParserK fusion" [2]
     forall s. toParserK (fromParserK s) = s #-}
@@ -735,3 +738,4 @@ manyTill (Fold fstep finitial fextract)
 
     extract (ManyTillL fs sR) = extractL sR >>= fstep fs >>= fextract
     extract (ManyTillR _ fs _) = fextract fs
+-}

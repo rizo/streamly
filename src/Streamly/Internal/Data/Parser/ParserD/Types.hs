@@ -140,7 +140,8 @@ import Control.Monad.Catch (MonadCatch, try, throwM, MonadThrow)
 import Prelude hiding (concatMap)
 
 import Fusion.Plugin.Types (Fuse(..))
-import Streamly.Internal.Data.Fold (Fold(..), toList)
+-- import Streamly.Internal.Data.Fold (Fold(..), toList)
+import Streamly.Internal.Data.Fold (Fold(..))
 import Streamly.Internal.Data.Strict (Tuple3'(..))
 
 -- | The return type of a 'Parser' step.
@@ -570,10 +571,10 @@ instance MonadCatch m => Alternative (Parser m a) where
     (<|>) = alt
 
     {-# INLINE many #-}
-    many = splitMany toList
+    many = undefined --splitMany toList
 
     {-# INLINE some #-}
-    some = splitSome toList
+    some = undefined --splitSome toList
 
 {-# ANN type ConcatParseState Fuse #-}
 data ConcatParseState sl p = ConcatParseL sl | ConcatParseR p
