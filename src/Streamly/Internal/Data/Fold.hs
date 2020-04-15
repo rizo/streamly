@@ -636,8 +636,8 @@ rollingHashFirstN n = ltake n rollingHash
 -- /Internal/
 --
 {-# INLINE sconcat #-}
-sconcat :: (Monad m, Semigroup a) => a -> Fold m a a
-sconcat i = Fold (\x a -> return $ x <> a) (return i) return
+sconcat :: (Monad m, Monoid a) => a -> Fold m a a
+sconcat i = Fold (\x a -> return $ Yield $ mappend x a) (return i) return
 
 -- | Fold an input stream consisting of monoidal elements using 'mappend'
 -- and 'mempty'.
