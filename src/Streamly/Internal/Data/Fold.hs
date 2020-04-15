@@ -211,7 +211,7 @@ module Streamly.Internal.Data.Fold
     )
 where
 
-import Control.Monad (join, void)
+import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Functor.Identity (Identity(..))
 import Data.Int (Int64)
