@@ -451,7 +451,7 @@ lcatMaybes = lfilter isJust . lmap fromJust
 -- | Take first @n@ elements from the stream and discard the rest.
 --
 -- @since 0.7.0
-{-# INLINABLE ltake #-}
+{-# INLINE ltake #-}
 ltake :: Monad m => Int -> Fold m a b -> Fold m a b
 ltake n (Fold step initial done) = Fold step' initial' done'
     where

@@ -445,7 +445,7 @@ last = _Fold1 (flip const)
 -- > genericLength = fmap getSum $ foldMap (Sum . const  1)
 --
 -- @since 0.7.0
-{-# INLINABLE genericLength #-}
+{-# INLINE genericLength #-}
 genericLength :: (Monad m, Num b) => Fold m a b
 genericLength = Fold (\n _ -> return $ Yield $ n + 1) (return 0) return
 
@@ -454,7 +454,7 @@ genericLength = Fold (\n _ -> return $ Yield $ n + 1) (return 0) return
 -- > length = fmap getSum $ foldMap (Sum . const  1)
 --
 -- @since 0.7.0
-{-# INLINABLE length #-}
+{-# INLINE length #-}
 length :: Monad m => Fold m a Int
 length = genericLength
 
