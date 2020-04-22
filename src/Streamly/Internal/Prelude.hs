@@ -4577,14 +4577,14 @@ classifySessionsBy tick tmout reset ejectPred
         let curTime = max sessionEventTime timestamp
             accumulate v = do
                 old <- case v of
-                    Nothing -> FL.initialTSM initial
+                    Nothing -> FL.liftInitialM initial
                     Just (Tuple' _ acc) -> return acc
-                new <- FL.stepWS step old value
+                new <- FL.liftStep step old value
                 return $ Tuple' timestamp new
             mOld = Map.lookup key sessionKeyValueMap
 
         acc@(Tuple' _ fres) <- accumulate mOld
-        res <- FL.doneWS extract fres
+        res <- FL.liftExtract extract fres
         case res of
             Left x -> do
                 -- deleting a key from the heap is expensive, so we never
@@ -4662,7 +4662,7 @@ classifySessionsBy tick tmout reset ejectPred
 
     -- delete from map and output the fold accumulator
     ejectEntry hp mp out cnt acc key = do
-        sess <- FL.doneWS extract acc
+        sess <- FL.liftExtract extract acc
         let out1 = (key, fromEither sess) `K.cons` out
         let mp1 = Map.delete key mp
         return (hp, mp1, out1, cnt - 1)

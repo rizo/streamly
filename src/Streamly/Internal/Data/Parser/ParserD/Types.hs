@@ -141,7 +141,7 @@ import Control.Monad.Catch (MonadCatch, try, throwM, MonadThrow)
 import Prelude hiding (concatMap)
 
 import Fusion.Plugin.Types (Fuse(..))
-import Streamly.Internal.Data.Fold.Types (initialTSM, stepWS, doneWS)
+import Streamly.Internal.Data.Fold.Types (liftInitialM, liftStep, liftExtract)
 import Streamly.Internal.Data.Fold (Fold(..), toList)
 import Streamly.Internal.Data.Strict (Tuple3'(..))
 
@@ -447,7 +447,7 @@ splitMany (Fold fstep finitial fextract) (Parser step1 initial1 extract1) = unde
 
     initial = do
         ps <- initial1 -- parse state
-        fs <- initialTSM finitial -- fold state
+        fs <- liftInitialM finitial -- fold state
         pure (Tuple3' ps (0 :: Int) fs)
 
     {-# INLINE step #-}
@@ -463,18 +463,18 @@ splitMany (Fold fstep finitial fextract) (Parser step1 initial1 extract1) = unde
                 return $ Continue n (Tuple3' s (cnt1 - n) fs)
             Done n b -> do
                 s <- initial1
-                fs1 <- stepWS fstep fs b
+                fs1 <- liftStep fstep fs b
                 return $ Partial n (Tuple3' s 0 fs1)
             Error _ -> do
-                xs <- doneWS fextract fs
+                xs <- liftExtract fextract fs
                 return $ Done cnt1 xs
 
     -- XXX The "try" may impact performance if this parser is used as a scan
     extract (Tuple3' s _ fs) = do
         r <- try $ extract1 s
         case r of
-            Left (_ :: ParseError) -> doneWS fextract fs
-            Right b -> stepWS fstep fs b >>= doneWS fextract
+            Left (_ :: ParseError) -> liftExtract fextract fs
+            Right b -> liftStep fstep fs b >>= liftExtract fextract
 
 -- | See documentation of 'Streamly.Internal.Data.Parser.some'.
 --
@@ -489,7 +489,7 @@ splitSome (Fold fstep finitial fextract) (Parser step1 initial1 extract1) = unde
 
     initial = do
         ps <- initial1 -- parse state
-        fs <- initialTSM finitial -- fold state
+        fs <- liftInitialM finitial -- fold state
         pure (Tuple3' ps (0 :: Int) (Left fs))
 
     {-# INLINE step #-}
@@ -500,7 +500,7 @@ splitSome (Fold fstep finitial fextract) (Parser step1 initial1 extract1) = unde
             Continue  n s -> return $ Continue n (Tuple3' s undefined (Left fs))
             Done n b -> do
                 s <- initial1
-                fs1 <- stepWS fstep fs b
+                fs1 <- liftStep fstep fs b
                 return $ Partial n (Tuple3' s 0 (Right fs1))
             Error err -> return $ Error err
     step (Tuple3' st cnt (Right fs)) a = do
@@ -515,17 +515,17 @@ splitSome (Fold fstep finitial fextract) (Parser step1 initial1 extract1) = unde
                 return $ Continue n (Tuple3' s (cnt1 - n) (Right fs))
             Done n b -> do
                 s <- initial1
-                fs1 <- stepWS fstep fs b
+                fs1 <- liftStep fstep fs b
                 return $ Partial n (Tuple3' s 0 (Right fs1))
-            Error _ -> Done cnt1 <$> doneWS fextract fs
+            Error _ -> Done cnt1 <$> liftExtract fextract fs
 
     -- XXX The "try" may impact performance if this parser is used as a scan
-    extract (Tuple3' s _ (Left fs)) = extract1 s >>= stepWS fstep fs >>= doneWS fextract
+    extract (Tuple3' s _ (Left fs)) = extract1 s >>= liftStep fstep fs >>= liftExtract fextract
     extract (Tuple3' s _ (Right fs)) = do
         r <- try $ extract1 s
         case r of
-            Left (_ :: ParseError) -> doneWS fextract fs
-            Right b -> stepWS fstep fs b >>= doneWS fextract
+            Left (_ :: ParseError) -> liftExtract fextract fs
+            Right b -> liftStep fstep fs b >>= liftExtract fextract
 
 -- | See 'Streamly.Internal.Data.Parser.die'.
 --

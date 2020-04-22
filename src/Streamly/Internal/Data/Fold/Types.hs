@@ -123,10 +123,10 @@
 
 module Streamly.Internal.Data.Fold.Types
     ( Step (..)
-    , stepWS
-    , doneWS
-    , initialTS
-    , initialTSM
+    , liftStep
+    , liftExtract
+    , liftInitial
+    , liftInitialM
     , Fold (..)
 
     , Fold2 (..)
@@ -205,23 +205,23 @@ data Fold m a b =
   -- | @Fold @ @ step @ @ initial @ @ extract@
   forall s. Fold (s -> a -> m (Step s b)) (m s) (s -> m b)
 
-{-# INLINE stepWS #-}
-stepWS :: Monad m => (s -> a -> m (Step s b)) -> Step s b -> a -> m (Step s b)
-stepWS step (Yield s) a = step s a
-stepWS _ x _ = return x
+{-# INLINE liftStep #-}
+liftStep :: Monad m => (s -> a -> m (Step s b)) -> Step s b -> a -> m (Step s b)
+liftStep step (Yield s) a = step s a
+liftStep _ x _ = return x
 
-{-# INLINE doneWS #-}
-doneWS :: Monad m => (s -> m b) -> Step s b -> m b
-doneWS _ (Stop b) = return b
-doneWS done (Yield s) = done s
+{-# INLINE liftExtract #-}
+liftExtract :: Monad m => (s -> m b) -> Step s b -> m b
+liftExtract _ (Stop b) = return b
+liftExtract done (Yield s) = done s
 
-{-# INLINE initialTS #-}
-initialTS :: s -> Step s b
-initialTS = Yield
+{-# INLINE liftInitial #-}
+liftInitial :: s -> Step s b
+liftInitial = Yield
 
-{-# INLINE initialTSM #-}
-initialTSM :: Monad m => m s -> m (Step s b)
-initialTSM = fmap Yield
+{-# INLINE liftInitialM #-}
+liftInitialM :: Monad m => m s -> m (Step s b)
+liftInitialM = fmap Yield
 
 
 -- | Experimental type to provide a side input to the fold for generating the
@@ -260,9 +260,9 @@ instance Monad m => Applicative (Fold m a) where
         let combine (Stop dL) (Stop dR) = Stop $ dL dR
             combine sl sr = Yield $ Tuple' sl sr
             step (Tuple' xL xR) a =
-                combine <$> stepWS stepL xL a <*> stepWS stepR xR a
-            begin = Tuple' <$> initialTSM beginL <*> initialTSM beginR
-            done (Tuple' xL xR) = doneWS doneL xL <*> doneWS doneR xR
+                combine <$> liftStep stepL xL a <*> liftStep stepR xR a
+            begin = Tuple' <$> liftInitialM beginL <*> liftInitialM beginR
+            done (Tuple' xL xR) = liftExtract doneL xL <*> liftExtract doneR xR
          in Fold step begin done
 
 -- | Combines the outputs of the folds (the type @b@) using their 'Semigroup'
@@ -546,15 +546,15 @@ lchunksOf n (Fold step1 initial1 extract1) (Fold step2 initial2 extract2) =
 
     where
 
-    initial' = (Tuple3' 0) <$> initialTSM initial1 <*> initialTSM initial2
+    initial' = (Tuple3' 0) <$> liftInitialM initial1 <*> liftInitialM initial2
     step' (Tuple3' i r1 r2) a = do
         if i < n
         then do
-            res <- stepWS step1 r1 a
+            res <- liftStep step1 r1 a
             return $ Yield $ Tuple3' (i + 1) res r2
         else do
-            res <- doneWS extract1 r1
-            acc2 <- stepWS step2 r2 res
+            res <- liftExtract extract1 r1
+            acc2 <- liftStep step2 r2 res
             case acc2 of
                 Stop b -> return $ Stop b
                 Yield _ -> do
@@ -562,9 +562,9 @@ lchunksOf n (Fold step1 initial1 extract1) (Fold step2 initial2 extract2) =
                     acc1 <- step1 i1 a
                     return $ Yield $ Tuple3' 1 acc1 acc2
     extract' (Tuple3' _ r1 r2) = do
-        res <- doneWS extract1 r1
-        acc2 <- stepWS step2 r2 res
-        doneWS extract2 acc2
+        res <- liftExtract extract1 r1
+        acc2 <- liftStep step2 r2 res
+        liftExtract extract2 acc2
 
 {-# INLINE lchunksOf2 #-}
 lchunksOf2 :: Monad m => Int -> Fold m a b -> Fold2 m x b c -> Fold2 m x a c
@@ -573,21 +573,21 @@ lchunksOf2 n (Fold step1 initial1 extract1) (Fold2 step2 inject2 extract2) =
 
     where
 
-    inject' x = (Tuple3' 0) <$> initialTSM initial1 <*> inject2 x
+    inject' x = (Tuple3' 0) <$> liftInitialM initial1 <*> inject2 x
     step' (Tuple3' i r1 r2) a = do
         if i < n
         then do
-            res <- stepWS step1 r1 a
+            res <- liftStep step1 r1 a
             return $ Tuple3' (i + 1) res r2
         else do
-            res <- doneWS extract1 r1
+            res <- liftExtract extract1 r1
             acc2 <- step2 r2 res
 
             i1 <- initial1
             acc1 <- step1 i1 a
             return $ Tuple3' 1 acc1 acc2
     extract' (Tuple3' _ r1 r2) = do
-        res <- doneWS extract1 r1
+        res <- liftExtract extract1 r1
         acc2 <- step2 r2 res
         extract2 acc2
 
@@ -613,8 +613,8 @@ lsessionsOf n (Fold step1 initial1 extract1) (Fold step2 initial2 extract2) =
 
     -- XXX MVar may be expensive we need a cheaper synch mechanism here
     initial' = do
-        i1 <- initialTSM initial1
-        i2 <- initialTSM initial2
+        i1 <- liftInitialM initial1
+        i2 <- liftInitialM initial2
         mv1 <- liftIO $ newMVar i1
         mv2 <- liftIO $ newMVar (Right i2)
         t <- control $ \run ->
@@ -625,7 +625,7 @@ lsessionsOf n (Fold step1 initial1 extract1) (Fold step2 initial2 extract2) =
         return $ Tuple3' t (Yield mv1) mv2
     step' acc@(Tuple3' t (Yield mv1) mv2) a = do
             r1 <- liftIO $ takeMVar mv1
-            res <- stepWS step1 r1 a
+            res <- liftStep step1 r1 a
             liftIO $ putMVar mv1 res
             case res of
                 Yield _ -> return $ Yield $ acc
@@ -636,21 +636,21 @@ lsessionsOf n (Fold step1 initial1 extract1) (Fold step2 initial2 extract2) =
         liftIO $ killThread tid
         case r2 of
             Left e -> throwM e
-            Right x -> doneWS extract2 x
+            Right x -> liftExtract extract2 x
 
     timerThread mv1 mv2 = do
         liftIO $ threadDelay (round $ n * 1000000)
 
         r1 <- liftIO $ takeMVar mv1
-        i1 <- initialTSM initial1
+        i1 <- liftInitialM initial1
         liftIO $ putMVar mv1 i1
 
-        res1 <- doneWS extract1 r1
+        res1 <- liftExtract extract1 r1
         r2 <- liftIO $ takeMVar mv2
         case r2 of
             Left _ -> liftIO $ putMVar mv2 r2
             Right x -> do
-                res <- stepWS step2 x res1
+                res <- liftStep step2 x res1
                 case res of
                     Yield _ -> do
                         liftIO $ putMVar mv2 $ Right res

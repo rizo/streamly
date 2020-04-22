@@ -988,17 +988,17 @@ splitAt
 splitAt n (Fold stepL initialL extractL) (Fold stepR initialR extractR) =
     Fold step initial extract
     where
-      initial  = Tuple3' <$> return n <*> initialTSM initialL <*> initialTSM initialR
+      initial  = Tuple3' <$> return n <*> liftInitialM initialL <*> liftInitialM initialR
 
       step (Tuple3' i xL xR) input =
         if i > 0
-        then stepWS stepL xL input >>= (\a -> return $ Yield $ Tuple3' (i - 1) a xR)
+        then liftStep stepL xL input >>= (\a -> return $ Yield $ Tuple3' (i - 1) a xR)
         else do
-          b <- stepWS stepR xR input
+          b <- liftStep stepR xR input
           case b of
               Yield _ -> return $ Yield $ Tuple3' i xL b
-              Stop x -> fmap Stop $ (,) <$> doneWS extractL xL <*> return x
-      extract (Tuple3' _ a b) = (,) <$> doneWS extractL a <*> doneWS extractR b
+              Stop x -> fmap Stop $ (,) <$> liftExtract extractL xL <*> return x
+      extract (Tuple3' _ a b) = (,) <$> liftExtract extractL a <*> liftExtract extractR b
 
 ------------------------------------------------------------------------------
 -- Element Aware APIs
@@ -1024,25 +1024,25 @@ spanBy cmp (Fold stepL initialL extractL) (Fold stepR initialR extractR) =
     Fold step initial extract
 
     where
-      initial = Tuple3' <$> initialTSM initialL <*> initialTSM initialR <*> return (Tuple' Nothing True)
+      initial = Tuple3' <$> liftInitialM initialL <*> liftInitialM initialR <*> return (Tuple' Nothing True)
 
       step (Tuple3' (Stop a) (Stop b) _) _ = return $ Stop (a, b)
 
       step (Tuple3' a b (Tuple' (Just frst) isFirstG)) input =
         if cmp frst input && isFirstG
-        then stepWS stepL a input
+        then liftStep stepL a input
               >>= (\a' -> return $ Yield $ Tuple3' a' b (Tuple' (Just frst) isFirstG))
-        else stepWS stepR b input
+        else liftStep stepR b input
               >>= (\a' -> return $ Yield $ Tuple3' a a' (Tuple' Nothing False))
 
       step (Tuple3' a b (Tuple' Nothing isFirstG)) input =
         if isFirstG
-        then stepWS stepL a input
+        then liftStep stepL a input
               >>= (\a' -> return $ Yield $ Tuple3' a' b (Tuple' (Just input) isFirstG))
-        else stepWS stepR b input
+        else liftStep stepR b input
               >>= (\a' -> return $ Yield $ Tuple3' a a' (Tuple' Nothing False))
 
-      extract (Tuple3' a b _) = (,) <$> doneWS extractL a <*> doneWS extractR b
+      extract (Tuple3' a b _) = (,) <$> liftExtract extractL a <*> liftExtract extractR b
 
 -- | @span p f1 f2@ composes folds @f1@ and @f2@ such that @f1@ consumes the
 -- input as long as the predicate @p@ is 'True'.  @f2@ consumes the rest of the
@@ -1075,16 +1075,16 @@ span p (Fold stepL initialL extractL) (Fold stepR initialR extractR) =
 
     where
 
-    initial = Tuple3' <$> initialTSM initialL <*> initialTSM initialR <*> return True
+    initial = Tuple3' <$> liftInitialM initialL <*> liftInitialM initialR <*> return True
 
     step (Tuple3' (Stop a) (Stop b) _) _ = return $ Stop (a, b)
 
     step (Tuple3' a b isFirstG) input =
         if isFirstG && p input
-        then stepWS stepL a input >>= (\a' -> return $ Yield $ Tuple3' a' b True)
-        else stepWS stepR b input >>= (\a' -> return $ Yield $ Tuple3' a a' False)
+        then liftStep stepL a input >>= (\a' -> return $ Yield $ Tuple3' a' b True)
+        else liftStep stepR b input >>= (\a' -> return $ Yield $ Tuple3' a a' False)
 
-    extract (Tuple3' a b _) = (,) <$> doneWS extractL a <*> doneWS extractR b
+    extract (Tuple3' a b _) = (,) <$> liftExtract extractL a <*> liftExtract extractR b
 
 -- |
 -- > break p = span (not . p)
@@ -1131,19 +1131,19 @@ spanByRolling cmp (Fold stepL initialL extractL) (Fold stepR initialR extractR) 
     Fold step initial extract
 
   where
-    initial = Tuple3' <$> initialTSM initialL <*> initialTSM initialR <*> return Nothing
+    initial = Tuple3' <$> liftInitialM initialL <*> liftInitialM initialR <*> return Nothing
 
     step (Tuple3' (Stop a) (Stop b) _) _ = return $ Stop (a, b)
 
     step (Tuple3' a b (Just frst)) input =
       if cmp input frst
-      then stepWS stepL a input >>= (\a' -> return $ Yield $ Tuple3' a' b (Just input))
-      else stepWS stepR b input >>= (\b' -> return $ Yield $ Tuple3' a b' (Just input))
+      then liftStep stepL a input >>= (\a' -> return $ Yield $ Tuple3' a' b (Just input))
+      else liftStep stepR b input >>= (\b' -> return $ Yield $ Tuple3' a b' (Just input))
 
     step (Tuple3' a b Nothing) input =
-      stepWS stepL a input >>= (\a' -> return $ Yield $ Tuple3' a' b (Just input))
+      liftStep stepL a input >>= (\a' -> return $ Yield $ Tuple3' a' b (Just input))
 
-    extract (Tuple3' a b _) = (,) <$> doneWS extractL a <*> doneWS extractR b
+    extract (Tuple3' a b _) = (,) <$> liftExtract extractL a <*> liftExtract extractR b
 
 ------------------------------------------------------------------------------
 -- Binary splitting on a separator
@@ -1199,10 +1199,10 @@ foldCons (Fold stepL beginL doneL) (Fold stepR beginR doneR) =
 
     where
 
-    begin = Tuple' <$> initialTSM beginL <*> initialTSM beginR
+    begin = Tuple' <$> liftInitialM beginL <*> liftInitialM beginR
     step (Tuple' (Stop a) (Stop b)) _ = return $ Stop $ a:b
-    step (Tuple' xL xR) a = fmap Yield $ Tuple' <$> stepWS stepL xL a <*> stepWS stepR xR a
-    done (Tuple' xL xR) = (:) <$> doneWS doneL xL <*> doneWS doneR xR
+    step (Tuple' xL xR) a = fmap Yield $ Tuple' <$> liftStep stepL xL a <*> liftStep stepR xR a
+    done (Tuple' xL xR) = (:) <$> liftExtract doneL xL <*> liftExtract doneR xR
 
 -- XXX use "List" instead of "[]"?, use Array for output to scale it to a large
 -- number of consumers? For polymorphic case a vector could be helpful. For
@@ -1299,14 +1299,14 @@ partitionByM f (Fold stepL beginL doneL) (Fold stepR beginR doneR) =
 
     where
 
-    begin = Tuple' <$> initialTSM beginL <*> initialTSM beginR
+    begin = Tuple' <$> liftInitialM beginL <*> liftInitialM beginR
     step (Tuple' (Stop x) (Stop y)) _ = return $ Stop (x, y)
     step (Tuple' xL xR) a = do
         r <- f a
         case r of
-            Left b -> fmap Yield $ Tuple' <$> stepWS stepL xL b <*> return xR
-            Right c -> fmap Yield $ Tuple' <$> return xL <*> stepWS stepR xR c
-    done (Tuple' xL xR) = (,) <$> doneWS doneL xL <*> doneWS doneR xR
+            Left b -> fmap Yield $ Tuple' <$> liftStep stepL xL b <*> return xR
+            Right c -> fmap Yield $ Tuple' <$> return xL <*> liftStep stepR xR c
+    done (Tuple' xL xR) = (,) <$> liftExtract doneL xL <*> liftExtract doneR xR
 
 -- Note: we could use (a -> Bool) instead of (a -> Either b c), but the latter
 -- makes the signature clearer as to which case belongs to which fold.
@@ -1438,19 +1438,19 @@ demuxWithDefault_ f kv (Fold dstep dinitial dextract) =
 
     initial = do
         mp <- Prelude.mapM initialize kv
-        dacc <- initialTSM dinitial
+        dacc <- liftInitialM dinitial
         return (Tuple' mp dacc)
     step (Tuple' mp dacc) a
       | (k, a') <- f a
       = case Map.lookup k mp of
             Nothing -> do
-                acc <- stepWS dstep dacc (k, a')
+                acc <- liftStep dstep dacc (k, a')
                 return $ Yield $ Tuple' mp acc
             Just (Fold step' acc _) -> do
                 _ <- acc >>= \x -> step' x a'
                 return $ Yield $ Tuple' mp dacc
     extract (Tuple' mp dacc) = do
-        void $ doneWS dextract dacc
+        void $ liftExtract dextract dacc
         Prelude.mapM_ (\(Fold _ acc e) -> acc >>= e) mp
 
 -- | Split the input stream based on a key field and fold each split using a
@@ -1545,9 +1545,9 @@ classifyWith f (Fold step initial extract) = Fold step' initial' extract'
                 r <- step x a
                 return $ Yield $ Map.insert k r kv
             Just x -> do
-                r <- stepWS step x a
+                r <- liftStep step x a
                 return $ Yield $ Map.insert k r kv
-    extract' = Prelude.mapM (doneWS extract)
+    extract' = Prelude.mapM (liftExtract extract)
 
 -- | Given an input stream of key value pairs and a fold for values, fold all
 -- the values belonging to each key.  Useful for map/reduce, bucketizing the
@@ -1587,9 +1587,9 @@ unzipWithM f (Fold stepL beginL doneL) (Fold stepR beginR doneR) =
     step (Tuple' (Stop l) (Stop r)) _ = return $ Stop (l, r)
     step (Tuple' xL xR) a = do
         (b,c) <- f a
-        fmap Yield $ Tuple' <$> stepWS stepL xL b <*> stepWS stepR xR c
-    begin = Tuple' <$> initialTSM beginL <*> initialTSM beginR
-    done (Tuple' xL xR) = (,) <$> doneWS doneL xL <*> doneWS doneR xR
+        fmap Yield $ Tuple' <$> liftStep stepL xL b <*> liftStep stepR xR c
+    begin = Tuple' <$> liftInitialM beginL <*> liftInitialM beginR
+    done (Tuple' xL xR) = (,) <$> liftExtract doneL xL <*> liftExtract doneR xR
 
 -- | Split elements in the input stream into two parts using a pure splitter
 -- function, direct each part to a different fold and zip the results.
