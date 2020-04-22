@@ -32,10 +32,14 @@ module Streamly.Internal.Data.Fold
     -- , init
 
     -- * Fold Creation Utilities
-    , mkPure
-    , mkPureId
+    , mkAccum
+    , mkAccum_
+    , mkAccumM
+    , mkAccumM_
     , mkFold
-    , mkFoldId
+    , mkFold_
+    , mkFoldM
+    , mkFoldM_
 
     -- ** Full Folds
     , drain
@@ -243,14 +247,51 @@ import qualified Streamly.Internal.Data.Fold.Types as FL
 -- Smart constructors
 ------------------------------------------------------------------------------
 
+-- | Make a non terminating fold using a pure step function, a pure initial state and
+-- a pure state extraction function.
+--
+-- /Internal/
+--
+{-# INLINE mkAccum #-}
+mkAccum :: Monad m => (s -> a -> s) -> s -> (s -> b) -> Fold m a b
+mkAccum step initial extract =
+    Fold (\s a -> return $ Yield $ step s a) (return initial) (return . extract)
+
+-- | Make a non terminating fold using a pure step function and a pure initial state. The
+-- final state extracted is identical to the intermediate state.
+--
+-- /Internal/
+--
+{-# INLINE mkAccum_ #-}
+mkAccum_ :: Monad m => (b -> a -> b) -> b -> Fold m a b
+mkAccum_ step initial = mkAccum step initial id
+
+-- | Make a non terminating fold with an effectful step function and initial state, and a state
+-- extraction function.
+--
+-- /Internal/
+--
+{-# INLINE mkAccumM #-}
+mkAccumM :: Functor m => (s -> a -> m s) -> m s -> (s -> m b) -> Fold m a b
+mkAccumM step = Fold (\s a -> Yield <$> step s a)
+
+-- | Make a non terminating fold with an effectful step function and initial state.  The final
+-- state extracted is identical to the intermediate state.
+--
+-- /Internal/
+--
+{-# INLINE mkAccumM_ #-}
+mkAccumM_ :: Monad m => (b -> a -> m b) -> m b -> Fold m a b
+mkAccumM_ step initial = mkAccumM step initial return
+
 -- | Make a fold using a pure step function, a pure initial state and
 -- a pure state extraction function.
 --
 -- /Internal/
 --
-{-# INLINE mkPure #-}
-mkPure :: Monad m => (s -> a -> (Step s b)) -> s -> (s -> b) -> Fold m a b
-mkPure step initial extract =
+{-# INLINE mkFold #-}
+mkFold :: Monad m => (s -> a -> (Step s b)) -> s -> (s -> b) -> Fold m a b
+mkFold step initial extract =
     Fold (\s a -> return $ step s a) (return initial) (return . extract)
 
 -- | Make a fold using a pure step function and a pure initial state. The
@@ -258,31 +299,31 @@ mkPure step initial extract =
 --
 -- /Internal/
 --
-{-# INLINE mkPureId #-}
-mkPureId :: Monad m => (b -> a -> (Step b b)) -> b -> Fold m a b
-mkPureId step initial = mkPure step initial id
+{-# INLINE mkFold_ #-}
+mkFold_ :: Monad m => (b -> a -> (Step b b)) -> b -> Fold m a b
+mkFold_ step initial = mkFold step initial id
 
 -- | Make a fold with an effectful step function and initial state, and a state
 -- extraction function.
 --
--- > mkFold = Fold
+-- > mkFoldM = Fold
 --
 --  We can just use 'Fold' but it is provided for completeness.
 --
 -- /Internal/
 --
-{-# INLINE mkFold #-}
-mkFold :: (s -> a -> m (Step s b)) -> m s -> (s -> m b) -> Fold m a b
-mkFold = Fold
+{-# INLINE mkFoldM #-}
+mkFoldM :: (s -> a -> m (Step s b)) -> m s -> (s -> m b) -> Fold m a b
+mkFoldM = Fold
 
 -- | Make a fold with an effectful step function and initial state.  The final
 -- state extracted is identical to the intermediate state.
 --
 -- /Internal/
 --
-{-# INLINE mkFoldId #-}
-mkFoldId :: Monad m => (b -> a -> m (Step b b)) -> m b -> Fold m a b
-mkFoldId step initial = Fold step initial return
+{-# INLINE mkFoldM_ #-}
+mkFoldM_ :: Monad m => (b -> a -> m (Step b b)) -> m b -> Fold m a b
+mkFoldM_ step initial = Fold step initial return
 
 ------------------------------------------------------------------------------
 -- hoist
