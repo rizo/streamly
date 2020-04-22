@@ -872,8 +872,8 @@ any predicate =
     Fold
         (\_ a ->
              if predicate a
-                 then return $ FL.Stop True
-                 else return $ FL.Yield False)
+             then return $ FL.Stop True
+             else return $ FL.Yield False)
         (return False)
         return
 
@@ -899,8 +899,8 @@ all predicate =
     Fold
         (\_ a ->
              if predicate a
-                 then return $ FL.Yield True
-                 else return $ FL.Stop False)
+             then return $ FL.Yield True
+             else return $ FL.Stop False)
         (return True)
         return
 
