@@ -123,8 +123,6 @@
 
 module Streamly.Internal.Data.Fold.Types
     ( Step (..)
-    , fmap1
-    , fmap2
     , stepWS
     , doneWS
     , initialTS
@@ -153,6 +151,7 @@ module Streamly.Internal.Data.Fold.Types
     )
 where
 
+import Data.Bifunctor
 import Control.Applicative (liftA2)
 import Control.Concurrent (threadDelay, forkIO, killThread)
 import Control.Concurrent.MVar (MVar, newMVar, takeMVar, putMVar)
@@ -175,19 +174,22 @@ import Streamly.Internal.Data.SVar (MonadAsync)
 -- {-# ANN type Step Fuse #-}
 data Step s b = Yield s | Stop b
 
-{-# INLINE fmap1 #-}
-fmap1 :: (a -> b) -> Step a x -> Step b x
-fmap1 f (Yield a) = Yield (f a)
-fmap1 _ (Stop x) = Stop x
+instance Bifunctor Step where
+    {-# INLINE bimap #-}
+    bimap f _ (Yield a) = Yield (f a)
+    bimap _ g (Stop b) = Stop (g b)
 
-{-# INLINE fmap2 #-}
-fmap2 :: (a -> b) -> Step x a -> Step x b
-fmap2 f (Stop a) = Stop (f a)
-fmap2 _ (Yield x) = Yield x
+    {-# INLINE first #-}
+    first f (Yield a) = Yield (f a)
+    first _ (Stop x) = Stop x
+
+    {-# INLINE second #-}
+    second f (Stop a) = Stop (f a)
+    second _ (Yield x) = Yield x
 
 instance Functor (Step s) where
     {-# INLINE fmap #-}
-    fmap = fmap2
+    fmap = second
 
 -- | Represents a left fold over an input stream of values of type @a@ to a
 -- single value of type @b@ in 'Monad' @m@.
