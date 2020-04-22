@@ -56,7 +56,7 @@ module Streamly.Internal.Data.Parser
       K.Parser (..)
     , D.ParseError (..)
     , D.Step (..)
-{-
+
     -- First order parsers
     -- * Accumulators
     , fromFold
@@ -232,7 +232,6 @@ module Streamly.Internal.Data.Parser
     -- , retryUntil  -- try until successful
     -- , retryUntilN -- try until successful n times
     -- @
--}
     )
 where
 
@@ -245,7 +244,7 @@ import Streamly.Internal.Data.Parser.ParserK.Types (Parser)
 
 import qualified Streamly.Internal.Data.Parser.ParserD as D
 import qualified Streamly.Internal.Data.Parser.ParserK.Types as K
-{-
+
 -------------------------------------------------------------------------------
 -- Upgrade folds to parses
 -------------------------------------------------------------------------------
@@ -875,4 +874,3 @@ manyTill :: MonadCatch m
     => Fold m b c -> Parser m a b -> Parser m a x -> Parser m a c
 manyTill f p1 p2 =
     D.toParserK $ D.manyTill f (D.fromParserK p1) (D.fromParserK p2)
--}
