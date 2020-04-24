@@ -1405,9 +1405,9 @@ demuxWith f kv = Fold step initial extract
         let (k, a') = f a
         in case Map.lookup k mp of
             Nothing -> return $ Yield $ mp
-            Just (Fold step' acc extract') -> do
-                !r <- acc >>= \x -> step' x a'
-                return $ Yield $ Map.insert k (Fold step' (return r) extract') mp
+            Just fld -> do
+                !r <- runStep fld a'
+                return $ Yield $ Map.insert k r mp
 #endif
     extract = Prelude.mapM (\(Fold _ acc e) -> acc >>= e)
 
