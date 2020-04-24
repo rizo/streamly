@@ -97,6 +97,7 @@ module Streamly.Internal.Data.Stream.StreamK
     , foldlT
     , foldlx'
     , foldlMx'
+    , runFold
 
     -- ** Specialized Folds
     , drain
@@ -206,6 +207,8 @@ import qualified Prelude
 
 import Streamly.Internal.Data.SVar
 import Streamly.Internal.Data.Stream.StreamK.Type
+
+import qualified Streamly.Internal.Data.Fold.Types as FL
 
 -------------------------------------------------------------------------------
 -- Deconstruction
@@ -438,6 +441,20 @@ foldlMx' step begin done m = go begin m
         let stop = acc >>= done
             single a = acc >>= \b -> step b a >>= done
             yieldk a r = acc >>= \b -> step b a >>= \x -> go (return x) r
+         in foldStream defState yieldk single stop m1
+
+{-# INLINABLE runFold #-}
+runFold :: (IsStream t, Monad m) => FL.Fold m a b -> t m a -> m b
+runFold (FL.Fold step begin done) m = go begin m
+    where
+    go !acc m1 =
+        let stop = acc >>= done
+            single a = acc >>= \b -> step b a >>= FL.liftExtract done
+            yieldk a r = acc
+              >>= \b -> step b a
+              >>= \x -> case x of
+                            FL.Yield s -> go (return s) r
+                            FL.Stop b1 -> return b1
          in foldStream defState yieldk single stop m1
 
 -- | Like 'foldl'' but with a monadic step function.
