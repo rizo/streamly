@@ -48,6 +48,8 @@ module Streamly.Internal.Data.Stream.Prelude
     , scanlMx'
     , postscanlx'
     , postscanlMx'
+    , postscanFold
+    , scanFold
 
     -- * Zip style operations
     , eqBy
@@ -85,7 +87,6 @@ import qualified Streamly.Internal.Data.Stream.StreamD as S
 import Streamly.Internal.Data.Stream.StreamK (IsStream(..))
 import qualified Streamly.Internal.Data.Stream.StreamK as K
 import qualified Streamly.Internal.Data.Stream.StreamD as D
-import qualified Streamly.Internal.Data.Fold.Types as FL
 
 ------------------------------------------------------------------------------
 -- Conversion to and from direct style stream
@@ -158,7 +159,7 @@ foldr f z = foldrM (\a b -> b >>= return . f a) (return z)
 -- @since 0.7.0
 {-# INLINE foldlMx' #-}
 foldlMx' :: (IsStream t, Monad m)
-    => (x -> a -> m (FL.Step x b)) -> m x -> (x -> m b) -> t m a -> m b
+    => (x -> a -> m x) -> m x -> (x -> m b) -> t m a -> m b
 foldlMx' step begin done m = S.foldlMx' step begin done $ toStreamS m
 
 {-# INLINE parselMx' #-}
@@ -180,7 +181,7 @@ parselMx' step initial extract m =
 -- @since 0.7.0
 {-# INLINE foldlx' #-}
 foldlx' :: (IsStream t, Monad m)
-    => (x -> a -> (FL.Step x b)) -> x -> (x -> b) -> t m a -> m b
+    => (x -> a -> x) -> x -> (x -> b) -> t m a -> m b
 foldlx' step begin done m = S.foldlx' step begin done $ toStreamS m
 
 -- | Strict left associative fold.
@@ -207,7 +208,7 @@ foldlT f z s = S.foldlT f z (toStreamS s)
 
 {-# INLINE runFold #-}
 runFold :: (Monad m, IsStream t) => Fold m a b -> t m a -> m b
-runFold (Fold step begin done) = foldlMx' step begin done
+runFold fld m = S.runFold fld $ toStreamS m
 
 ------------------------------------------------------------------------------
 -- Scans
@@ -216,14 +217,14 @@ runFold (Fold step begin done) = foldlMx' step begin done
 -- postscanlM' followed by mapM
 {-# INLINE postscanlMx' #-}
 postscanlMx' :: (IsStream t, Monad m)
-    => (x -> a -> m (FL.Step x b)) -> m x -> (x -> m b) -> t m a -> t m b
+    => (x -> a -> m x) -> m x -> (x -> m b) -> t m a -> t m b
 postscanlMx' step begin done m =
     D.fromStreamD $ D.postscanlMx' step begin done $ D.toStreamD m
 
 -- postscanl' followed by map
 {-# INLINE postscanlx' #-}
 postscanlx' :: (IsStream t, Monad m)
-    => (x -> a -> (FL.Step x b)) -> x -> (x -> b) -> t m a -> t m b
+    => (x -> a -> x) -> x -> (x -> b) -> t m a -> t m b
 postscanlx' step begin done m =
     D.fromStreamD $ D.postscanlx' step begin done $ D.toStreamD m
 
@@ -231,9 +232,20 @@ postscanlx' step begin done m =
 --
 {-# INLINE scanlMx' #-}
 scanlMx' :: (IsStream t, Monad m)
-    => (x -> a -> m (FL.Step x b)) -> m x -> (x -> m b) -> t m a -> t m b
+    => (x -> a -> m x) -> m x -> (x -> m b) -> t m a -> t m b
 scanlMx' step begin done m =
     D.fromStreamD $ D.scanlMx' step begin done $ D.toStreamD m
+
+{-# INLINE_NORMAL postscanFold #-}
+postscanFold :: (IsStream t, Monad m)
+    => Fold m a b -> t m a -> t m b
+postscanFold fld m =
+    D.fromStreamD $ D.postscanFold fld $ D.toStreamD m
+
+{-# INLINE scanFold #-}
+scanFold :: (IsStream t, Monad m)
+    => Fold m a b -> t m a -> t m b
+scanFold fld m = D.fromStreamD $ D.scanFold fld $ D.toStreamD m
 
 -- scanl followed by map
 --
@@ -245,7 +257,7 @@ scanlMx' step begin done m =
 -- @since 0.7.0
 {-# INLINE scanlx' #-}
 scanlx' :: (IsStream t, Monad m)
-    => (x -> a -> FL.Step x b) -> x -> (x -> b) -> t m a -> t m b
+    => (x -> a -> x) -> x -> (x -> b) -> t m a -> t m b
 scanlx' step begin done m =
     fromStreamS $ S.scanlx' step begin done $ toStreamS m
 

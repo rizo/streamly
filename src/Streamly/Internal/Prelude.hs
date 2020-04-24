@@ -1281,7 +1281,7 @@ foldr1 f m = S.foldr1 f (toStreamS m)
 -- @since 0.2.0
 {-# DEPRECATED foldx "Please use foldl' followed by fmap instead." #-}
 {-# INLINE foldx #-}
-foldx :: Monad m => (x -> a -> FL.Step x b) -> x -> (x -> b) -> SerialT m a -> m b
+foldx :: Monad m => (x -> a -> x) -> x -> (x -> b) -> SerialT m a -> m b
 foldx = P.foldlx'
 
 -- | Left associative/strict push fold. @foldl' reduce initial stream@ invokes
@@ -1316,7 +1316,7 @@ foldl1' step m = do
 -- @since 0.2.0
 {-# DEPRECATED foldxM "Please use foldlM' followed by fmap instead." #-}
 {-# INLINE foldxM #-}
-foldxM :: Monad m => (x -> a -> m (FL.Step x b)) -> m x -> (x -> m b) -> SerialT m a -> m b
+foldxM :: Monad m => (x -> a -> m x) -> m x -> (x -> m b) -> SerialT m a -> m b
 foldxM = P.foldlMx'
 
 -- | Like 'foldl'' but with a monadic step function.
@@ -2115,7 +2115,7 @@ transform pipe xs = fromStreamD $ D.transform pipe (toStreamD xs)
 -- /Since 0.2.0/
 {-# DEPRECATED scanx "Please use scanl followed by map instead." #-}
 {-# INLINE scanx #-}
-scanx :: (IsStream t, Monad m) => (x -> a -> (FL.Step x b)) -> x -> (x -> b) -> t m a -> t m b
+scanx :: (IsStream t, Monad m) => (x -> a -> x) -> x -> (x -> b) -> t m a -> t m b
 scanx = P.scanlx'
 
 -- XXX this needs to be concurrent
@@ -2266,14 +2266,14 @@ scanl1' step m = fromStreamD $ D.scanl1' step $ toStreamD m
 -- @since 0.7.0
 {-# INLINE scan #-}
 scan :: (IsStream t, Monad m) => Fold m a b -> t m a -> t m b
-scan (Fold step begin done) = P.scanlMx' step begin done
+scan = P.scanFold
 
 -- | Postscan a stream using the given monadic fold.
 --
 -- @since 0.7.0
 {-# INLINE postscan #-}
 postscan :: (IsStream t, Monad m) => Fold m a b -> t m a -> t m b
-postscan (Fold step begin done) = P.postscanlMx' step begin done
+postscan = P.postscanFold
 
 ------------------------------------------------------------------------------
 -- Stateful Transformations

@@ -79,7 +79,6 @@ import Fusion.Plugin.Types (Fuse(..))
 import Streamly.Internal.Data.SVar (State(..), adaptState, defState)
 import Streamly.Internal.Data.Fold.Types (Fold(..), liftInitialM, liftStep, liftExtract, Fold2(..))
 
-import qualified Streamly.Internal.Data.Fold.Types as FL
 import qualified Streamly.Internal.Data.Stream.StreamK as K
 
 ------------------------------------------------------------------------------
@@ -470,7 +469,7 @@ toListId s = Identity $ build (\c n -> toListFB c n s)
 
 -- XXX run begin action only if the stream is not empty.
 {-# INLINE_NORMAL foldlMx' #-}
-foldlMx' :: Monad m => (x -> a -> m (FL.Step x b)) -> m x -> (x -> m b) -> Stream m a -> m b
+foldlMx' :: Monad m => (x -> a -> m x) -> m x -> (x -> m b) -> Stream m a -> m b
 foldlMx' fstep begin done (Stream step state) =
     begin >>= \x -> go SPEC x state
   where
@@ -481,14 +480,12 @@ foldlMx' fstep begin done (Stream step state) =
         case r of
             Yield x s -> do
                 acc' <- fstep acc x
-                case acc' of
-                    FL.Stop b -> return b
-                    FL.Yield acc'' -> go SPEC acc'' s
+                go SPEC acc'  s
             Skip s -> go SPEC acc s
             Stop   -> done acc
 
 {-# INLINE foldlx' #-}
-foldlx' :: Monad m => (x -> a -> FL.Step x b) -> x -> (x -> b) -> Stream m a -> m b
+foldlx' :: Monad m => (x -> a -> x) -> x -> (x -> b) -> Stream m a -> m b
 foldlx' fstep begin done m =
     foldlMx' (\b a -> return (fstep b a)) (return begin) (return . done) m
 

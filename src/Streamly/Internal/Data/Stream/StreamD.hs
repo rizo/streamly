@@ -248,6 +248,8 @@ module Streamly.Internal.Data.Stream.StreamD
     , postscanlMx'
     , scanlMx'
     , scanlx'
+    , postscanFold
+    , scanFold
 
     -- * Filtering
     , filter
@@ -3536,8 +3538,39 @@ prescanl' f z = prescanlM' (\a b -> return (f a b)) (return z)
 --
 {-# INLINE_NORMAL postscanlMx' #-}
 postscanlMx' :: Monad m
-    => (x -> a -> m (FL.Step x b)) -> m x -> (x -> m b) -> Stream m a -> Stream m b
+    => (x -> a -> m x) -> m x -> (x -> m b) -> Stream m a -> Stream m b
 postscanlMx' fstep begin done (Stream step state) = do
+    Stream step' (state, begin)
+  where
+    {-# INLINE_LATE step' #-}
+    step' gst (st, acc) = do
+        r <- step (adaptState gst) st
+        case r of
+            Yield x s -> do
+                old <- acc
+                y <- fstep old x
+                v <- done y
+                v `seq` y `seq` return (Yield v (s, return y))
+            Skip s -> return $ Skip (s, acc)
+            Stop   -> return Stop
+
+{-# INLINE_NORMAL postscanlx' #-}
+postscanlx' :: Monad m
+    => (x -> a -> x) -> x -> (x -> b) -> Stream m a -> Stream m b
+postscanlx' fstep begin done s =
+    postscanlMx' (\b a -> return (fstep b a)) (return begin) (return . done) s
+
+-- XXX do we need consM strict to evaluate the begin value?
+{-# INLINE scanlMx' #-}
+scanlMx' :: Monad m
+    => (x -> a -> m x) -> m x -> (x -> m b) -> Stream m a -> Stream m b
+scanlMx' fstep begin done s =
+    (begin >>= \x -> x `seq` done x) `consM` postscanlMx' fstep begin done s
+
+{-# INLINE_NORMAL postscanFold #-}
+postscanFold :: Monad m
+    => FL.Fold m a b -> Stream m a -> Stream m b
+postscanFold (FL.Fold fstep begin done) (Stream step state) = do
     Stream step' (state, liftInitialM begin)
   where
     {-# INLINE_LATE step' #-}
@@ -3552,22 +3585,16 @@ postscanlMx' fstep begin done (Stream step state) = do
             Skip s -> return $ Skip (s, acc)
             Stop   -> return Stop
 
-{-# INLINE_NORMAL postscanlx' #-}
-postscanlx' :: Monad m
-    => (x -> a -> (FL.Step x b)) -> x -> (x -> b) -> Stream m a -> Stream m b
-postscanlx' fstep begin done s =
-    postscanlMx' (\b a -> return (fstep b a)) (return begin) (return . done) s
 
--- XXX do we need consM strict to evaluate the begin value?
-{-# INLINE scanlMx' #-}
-scanlMx' :: Monad m
-    => (x -> a -> m (FL.Step x b)) -> m x -> (x -> m b) -> Stream m a -> Stream m b
-scanlMx' fstep begin done s =
-    (begin >>= \x -> x `seq` done x) `consM` postscanlMx' fstep begin done s
+{-# INLINE scanFold #-}
+scanFold :: Monad m
+    => FL.Fold m a b -> Stream m a -> Stream m b
+scanFold fld@(FL.Fold _ begin done) s =
+    (begin >>= \x -> x `seq` done x) `consM` postscanFold fld s
 
 {-# INLINE scanlx' #-}
 scanlx' :: Monad m
-    => (x -> a -> (FL.Step x b)) -> x -> (x -> b) -> Stream m a -> Stream m b
+    => (x -> a -> x) -> x -> (x -> b) -> Stream m a -> Stream m b
 scanlx' fstep begin done s =
     scanlMx' (\b a -> return (fstep b a)) (return begin) (return . done) s
 
@@ -4324,7 +4351,21 @@ the (Stream step state) = go state
 
 {-# INLINE runFold #-}
 runFold :: (Monad m) => Fold m a b -> Stream m a -> m b
-runFold (Fold step begin done) = foldlMx' step begin done
+runFold (Fold fstep begin done) (Stream step state) =
+    begin >>= \x -> go SPEC x state
+  where
+    -- XXX !acc?
+    {-# INLINE_LATE go #-}
+    go !_ acc st = acc `seq` do
+        r <- step defState st
+        case r of
+            Yield x s -> do
+                acc' <- fstep acc x
+                case acc' of
+                    FL.Stop b -> return b
+                    FL.Yield acc'' -> go SPEC acc'' s
+            Skip s -> go SPEC acc s
+            Stop   -> done acc
 
 -------------------------------------------------------------------------------
 -- Concurrent application and fold
