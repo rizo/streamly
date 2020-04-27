@@ -172,7 +172,7 @@ import Streamly.Internal.Data.SVar (MonadAsync)
 ------------------------------------------------------------------------------
 
 -- {-# ANN type Step Fuse #-}
-data Step s b = Yield s | Stop b
+data Step s b = Yield !s | Stop !b
 
 instance Bifunctor Step where
     {-# INLINE bimap #-}
