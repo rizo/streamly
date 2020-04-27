@@ -382,6 +382,7 @@ library
                      , Streamly.Internal.Data.Unicode.Stream
                      , Streamly.Internal.Data.Unicode.Char
                      , Streamly.Internal.Memory.Unicode.Array
+                     , Streamly.Internal.Data.Json.Stream
 
     if !impl(ghcjs)
        exposed-modules:
@@ -406,6 +407,10 @@ library
                      , transformers      >= 0.4   && < 0.6
 
                      , heaps             >= 0.3     && < 0.4
+
+                     , hashable
+                     , unordered-containers
+                     , scientific
 
                     -- concurrency
                      , atomic-primops    >= 0.8   && < 0.9
