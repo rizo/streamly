@@ -1763,25 +1763,15 @@ wordsBy predicate f (Stream step state) = Stream (stepOuter f) (Just state)
 
         go !_ stt !acc = do
             res <- step (adaptState gst) stt
-            case acc of
-                FL.Yield sf ->
-                    case res of
-                        Yield x s -> do
-                            if predicate x
-                            then done sf >>= \r -> return $ Yield r (Just s)
-                            else do
-                                acc' <- fstep sf x
-                                go SPEC s acc'
-                        Skip s -> go SPEC s acc
-                        Stop -> done sf >>= \r -> return $ Yield r Nothing
-                FL.Stop b ->
-                    case res of
-                        Yield x s -> do
-                            if predicate x
-                            then return $ Yield b (Just s)
-                            else go SPEC s acc
-                        Skip s -> go SPEC s acc
-                        Stop -> return $ Yield b Nothing
+            case res of
+                Yield x s -> do
+                    if predicate x
+                    then liftExtract done acc >>= \r -> return $ Yield r (Just s)
+                    else do
+                        acc' <- liftStep fstep acc x
+                        go SPEC s acc'
+                Skip s -> go SPEC s acc
+                Stop -> liftExtract done acc >>= \r -> return $ Yield r Nothing
 
     stepOuter _ _ Nothing = return Stop
 
