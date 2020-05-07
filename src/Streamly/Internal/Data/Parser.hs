@@ -458,6 +458,24 @@ takeWhile cond = D.toParserK . D.takeWhile cond
 takeWhile1 :: MonadCatch m => (a -> Bool) -> Fold m a b -> Parser m a b
 takeWhile1 cond = D.toParserK . D.takeWhile1 cond
 
+-- | @sepBy fl p sep@ collects zero or more stream elements separated by @sep@.
+--
+-- * Stops - when either of @p@ or @sep@ fails
+-- * Fails - never
+--
+-- >>> S.parse (PR.sepBy FL.toList (PR.satisfy (< 7)) (PR.satisfy (> 8))) $ S.fromList [0,9,3,10]
+-- > [0,3]
+--
+-- /Internal/
+--
+{-# INLINE sepBy #-}
+sepBy :: MonadCatch m
+      => Fold m b c
+      -> Parser m a b
+      -> Parser m a sep
+      -> Parser m a c
+sepBy fl pa = D.toParserK . D.sepBy fl (D.fromParserK pa) . D.fromParserK
+
 -- | Collect stream elements until an element succeeds the predicate. Drop the
 -- element on which the predicate succeeded. The succeeding element is treated
 -- as an infix separator which is dropped from the output.
