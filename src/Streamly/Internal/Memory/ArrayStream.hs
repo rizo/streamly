@@ -198,7 +198,7 @@ _spliceArraysBuffered :: (MonadIO m, Storable a)
 _spliceArraysBuffered s = do
     buffered <- P.foldr S.cons S.nil s
     len <- S.sum (S.map length buffered)
-    A.unsafeFreeze <$> spliceArraysLenUnsafe len (S.map A.unsafeThraw s)
+    A.unsafeFreeze <$> spliceArraysLenUnsafe len (S.map A.unsafeThaw s)
 
 {-# INLINE spliceArraysRealloced #-}
 spliceArraysRealloced :: forall m a. (MonadIO m, Storable a)
@@ -207,7 +207,7 @@ spliceArraysRealloced s = do
     idst <- liftIO $ MA.newArray (A.bytesToElemCount (undefined :: a)
                                   (A.mkChunkSizeKB 4))
 
-    arr <- S.foldlM' MA.spliceWithDoubling idst (S.map A.unsafeThraw s)
+    arr <- S.foldlM' MA.spliceWithDoubling idst (S.map A.unsafeThaw s)
     liftIO $ A.unsafeFreeze <$> MA.shrinkToFit arr
 
 -- | Given a stream of arrays, splice them all together to generate a single

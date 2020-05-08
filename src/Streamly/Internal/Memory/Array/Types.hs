@@ -22,10 +22,10 @@ module Streamly.Internal.Memory.Array.Types
     (
       Array (..)
 
-    -- * Freezing and Thrawing
+    -- * Freezing and Thawing
     , unsafeFreeze
     , unsafeFreezeWithShrink
-    , unsafeThraw
+    , unsafeThaw
 
     -- * Construction
 --    , withNewArray
@@ -202,7 +202,7 @@ data Array a =
     }
 
 -------------------------------------------------------------------------------
--- Freezing and Thrawing
+-- Freezing and Thawing
 -------------------------------------------------------------------------------
 
 -- | Returns an immutable array using the same underlying pointers of the
@@ -224,10 +224,10 @@ unsafeFreezeWithShrink arr = unsafePerformIO $ do
 -- | Returns a mutable array using the same underlying pointers of the immutable
 -- array. If the resulting array is mutated, the older immutable array is
 -- mutated as well. Please make sure that the immutable array is never used
--- after thrawing it using /unsafeThraw/.
-{-# INLINE unsafeThraw #-}
-unsafeThraw :: Array a -> MA.Array a
-unsafeThraw (Array as ae) = MA.Array as ae ae
+-- after thawing it using /unsafeThaw/.
+{-# INLINE unsafeThaw #-}
+unsafeThaw :: Array a -> MA.Array a
+unsafeThaw (Array as ae) = MA.Array as ae ae
 
 -------------------------------------------------------------------------------
 -- Utility functions
@@ -832,7 +832,7 @@ instance Foldable Array where
 -- Splice two immutable arrays creating a new array.
 {-# INLINE spliceTwo #-}
 spliceTwo :: (MonadIO m, Storable a) => Array a -> Array a -> m (Array a)
-spliceTwo arr1 arr2 = unsafeFreeze <$> MA.spliceTwo (unsafeThraw arr1) (unsafeThraw arr2)
+spliceTwo arr1 arr2 = unsafeFreeze <$> MA.spliceTwo (unsafeThaw arr1) (unsafeThaw arr2)
 
 instance Storable a => Semigroup (Array a) where
     arr1 <> arr2 = unsafePerformIO $ spliceTwo arr1 arr2
@@ -901,7 +901,7 @@ unlines sep (D.Stream step state) = D.Stream step' (OuterLoop state)
 {-# INLINE_NORMAL packArraysChunksOf #-}
 packArraysChunksOf :: (MonadIO m, Storable a)
     => Int -> D.Stream m (Array a) -> D.Stream m (Array a)
-packArraysChunksOf n str = D.map unsafeFreeze $ MA.packArraysChunksOf n $ D.map unsafeThraw str
+packArraysChunksOf n str = D.map unsafeFreeze $ MA.packArraysChunksOf n $ D.map unsafeThaw str
 
 -- XXX instead of writing two different versions of this operation, we should
 -- write it as a pipe.
@@ -934,14 +934,14 @@ lpackArraysChunksOf n (Fold step1 initial1 extract1) =
                     extract1 r
                     r1' <- initial1
                     return (Tuple' Nothing r1')
-                else return (Tuple' (Just (unsafeThraw arr)) r1)
+                else return (Tuple' (Just (unsafeThaw arr)) r1)
 
     step (Tuple' (Just buf) r1) arr = do
             let len = MA.byteLength buf + byteLength arr
             buf' <- if MA.byteCapacity buf < len
                     then liftIO $ MA.realloc (max n len) buf
                     else return buf
-            buf'' <- MA.spliceWith buf' (unsafeThraw arr)
+            buf'' <- MA.spliceWith buf' (unsafeThaw arr)
 
             if len >= n
             then do
@@ -961,7 +961,7 @@ lpackArraysChunksOf n (Fold step1 initial1 extract1) =
 {-# INLINE_NORMAL groupIOVecsOf #-}
 groupIOVecsOf :: MonadIO m
     => Int -> Int -> D.Stream m (Array a) -> D.Stream m (Array IOVec)
-groupIOVecsOf n maxIOVLen str = D.map unsafeFreeze $ MA.groupIOVecsOf n maxIOVLen $ D.map unsafeThraw str
+groupIOVecsOf n maxIOVLen str = D.map unsafeFreeze $ MA.groupIOVecsOf n maxIOVLen $ D.map unsafeThaw str
 #endif
 
 -- | Create two slices of an array without copying the original array. The
