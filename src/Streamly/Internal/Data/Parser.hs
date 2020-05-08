@@ -109,6 +109,7 @@ module Streamly.Internal.Data.Parser
     , takeWhile
     -- $takeWhile
     , takeWhile1
+    , sepBy
     , sliceSepBy
     , sliceSepByMax
     -- | Unimplemented

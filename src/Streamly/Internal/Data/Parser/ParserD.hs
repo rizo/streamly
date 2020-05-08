@@ -471,7 +471,7 @@ sepBy :: MonadCatch m
       -> Parser m a sep
       -> Parser m a c
 sepBy (Fold fstep finitial fextract) (Parser pstep pinitial pextract)
-    (Parser psepstep psepinitial psepextract) = Parser step initial extract
+    (Parser psepstep psepinitial _) = Parser step initial extract
 
     where
 
@@ -489,7 +489,7 @@ sepBy (Fold fstep finitial fextract) (Parser pstep pinitial pextract)
                 pseps <- psepinitial
                 fs <- fstep fst b
                 return $ Skip n (SepParseSep 0 fs pseps)
-            Error err -> do
+            Error _ -> do
                 c <- fextract fst
                 return $ Stop (cnt + 1) c
 
@@ -501,7 +501,7 @@ sepBy (Fold fstep finitial fextract) (Parser pstep pinitial pextract)
             Stop n _ -> do
                 ps <- pinitial
                 return $ Skip n (SepParseA (cnt + 1) fst ps)
-            Error err -> do
+            Error _ -> do
                 c <- fextract fst
                 return $ Stop (cnt + 1) c
 
@@ -510,7 +510,7 @@ sepBy (Fold fstep finitial fextract) (Parser pstep pinitial pextract)
         case r of
             Left (_ :: ParseError) -> fextract fs
             Right b -> fstep fs b >>= fextract
-    extract (SepParseSep _ fs seps) = fextract fs
+    extract (SepParseSep _ fs _) = fextract fs
 
 -- | See 'Streamly.Internal.Data.Parser.sliceSepBy'.
 --
