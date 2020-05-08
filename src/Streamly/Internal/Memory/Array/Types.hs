@@ -271,130 +271,10 @@ bytesToElemCount x n =
 -- Construction
 -------------------------------------------------------------------------------
 
-{-
--- | allocate a new array using the provided allocator function.
-{-# INLINE newArrayAlignedAllocWith #-}
-newArrayAlignedAllocWith :: forall a. Storable a
-    => (Int -> Int -> IO (ForeignPtr a)) -> Int -> Int -> IO (Array a)
-newArrayAlignedAllocWith alloc alignSize count = do
-    let size = count * sizeOf (undefined :: a)
-    fptr <- alloc size alignSize
-    let p = unsafeForeignPtrToPtr fptr
-    return $ Array
-        { aStart = fptr
-        , aEnd   = p
-        , aBound = p `plusPtr` size
-        }
-
--- | Allocate a new array aligned to the specified alignmend and using
--- unmanaged pinned memory. The memory will not be automatically freed by GHC.
--- This could be useful in allocate once global data structures. Use carefully
--- as incorrect use can lead to memory leak.
-{-# INLINE newArrayAlignedUnmanaged #-}
-newArrayAlignedUnmanaged :: forall a. Storable a => Int -> Int -> IO (Array a)
-newArrayAlignedUnmanaged =
-    newArrayAlignedAllocWith Malloc.mallocForeignPtrAlignedUnmanagedBytes
-
-{-# INLINE newArrayAligned #-}
-newArrayAligned :: forall a. Storable a => Int -> Int -> IO (Array a)
-newArrayAligned = newArrayAlignedAllocWith Malloc.mallocForeignPtrAlignedBytes
-
--- XXX can unaligned allocation be more efficient when alignment is not needed?
---
--- | Allocate an array that can hold 'count' items.  The memory of the array is
--- uninitialized.
---
--- Note that this is internal routine, the reference to this array cannot be
--- given out until the array has been written to and frozen.
-{-# INLINE newArray #-}
-newArray :: forall a. Storable a => Int -> IO (Array a)
-newArray = newArrayAligned (alignment (undefined :: a))
-
--- | Allocate an Array of the given size and run an IO action passing the array
--- start pointer.
-{-# INLINE withNewArray #-}
-withNewArray :: forall a. Storable a => Int -> (Ptr a -> IO ()) -> IO (Array a)
-withNewArray count f = do
-    arr <- newArray count
-    withForeignPtr (aStart arr) $ \p -> f p >> return arr
-
--- XXX grow the array when we are beyond bound.
---
--- Internal routine for when the array is being created. Appends one item at
--- the end of the array. Useful when sequentially writing a stream to the
--- array.
-{-# INLINE unsafeSnoc #-}
-unsafeSnoc :: forall a. Storable a => Array a -> a -> IO (Array a)
-unsafeSnoc arr@Array{..} x = do
-    when (aEnd == aBound) $
-        error "BUG: unsafeSnoc: writing beyond array bounds"
-    poke aEnd x
-    touchForeignPtr aStart
-    return $ arr {aEnd = aEnd `plusPtr` sizeOf (undefined :: a)}
-
-{-# INLINE snoc #-}
-snoc :: forall a. Storable a => Array a -> a -> IO (Array a)
-snoc arr@Array {..} x =
-    if aEnd == aBound
-    then do
-        let oldStart = unsafeForeignPtrToPtr aStart
-            size = aEnd `minusPtr` oldStart
-            newSize = size + sizeOf (undefined :: a)
-        newPtr <- Malloc.mallocForeignPtrAlignedBytes
-                    newSize (alignment (undefined :: a))
-        withForeignPtr newPtr $ \pNew -> do
-          memcpy (castPtr pNew) (castPtr oldStart) size
-          poke (pNew `plusPtr` size) x
-          touchForeignPtr aStart
-          return $ Array
-              { aStart = newPtr
-              , aEnd   = pNew `plusPtr` (size + sizeOf (undefined :: a))
-              , aBound = pNew `plusPtr` newSize
-              }
-    else do
-        poke aEnd x
-        touchForeignPtr aStart
-        return $ arr {aEnd = aEnd `plusPtr` sizeOf (undefined :: a)}
-
--- | Reallocate the array to the specified size in bytes. If the size is less
--- than the original array the array gets truncated.
-{-# NOINLINE reallocAligned #-}
-reallocAligned :: Int -> Int -> Array a -> IO (Array a)
-reallocAligned alignSize newSize Array{..} = do
-    assert (aEnd <= aBound) (return ())
-    let oldStart = unsafeForeignPtrToPtr aStart
-    let size = aEnd `minusPtr` oldStart
-    newPtr <- Malloc.mallocForeignPtrAlignedBytes newSize alignSize
-    withForeignPtr newPtr $ \pNew -> do
-        memcpy (castPtr pNew) (castPtr oldStart) size
-        touchForeignPtr aStart
-        return $ Array
-            { aStart = newPtr
-            , aEnd   = pNew `plusPtr` size
-            , aBound = pNew `plusPtr` newSize
-            }
-
--- XXX can unaligned allocation be more efficient when alignment is not needed?
-{-# INLINABLE realloc #-}
-realloc :: forall a. Storable a => Int -> Array a -> IO (Array a)
-realloc = reallocAligned (alignment (undefined :: a))
-
--- | Remove the free space from an Array.
-shrinkToFit :: forall a. Storable a => Array a -> IO (Array a)
-shrinkToFit arr@Array{..} = do
-    assert (aEnd <= aBound) (return ())
-    let start = unsafeForeignPtrToPtr aStart
-    let used = aEnd `minusPtr` start
-        waste = aBound `minusPtr` aEnd
-    -- if used == waste == 0 then do not realloc
-    -- if the wastage is more than 25% of the array then realloc
-    if used < 3 * waste
-    then realloc used arr
-    else return arr
- -}
-
--- See also: https://gitlab.haskell.org/ghc/ghc/issues/5218 (Add
--- unpackCStringLen# to create Strings from string literals)
+-- XXX when converting an array of Word8 from a literal string we can simply
+-- refer to the literal string. Is it possible to write rules such that
+-- fromList Word8 can be rewritten so that GHC does not first convert the
+-- literal to [Char] and then we convert it back to an Array Word8?
 --
 -- TBD: We can also add template haskell quasiquotes to specify arrays of other
 -- literal types. TH will encode them into a string literal and we read that as
@@ -435,7 +315,6 @@ fromAddr# n addr# = do
     return $ Array
         { aStart = ptr
         , aEnd   = end
-        , aBound = end
         }
 
 -- | Like 'fromAddr#' but determines the length of the array upto and excluding
@@ -513,15 +392,6 @@ byteLength Array{..} =
 {-# INLINE length #-}
 length :: forall a. Storable a => Array a -> Int
 length arr = byteLength arr `div` sizeOf (undefined :: a)
-
-{-
-{-# INLINE byteCapacity #-}
-byteCapacity :: Array a -> Int
-byteCapacity Array{..} =
-    let p = unsafeForeignPtrToPtr aStart
-        len = aBound `minusPtr` p
-    in assert (len >= 0) len
--}
 
 {-# INLINE_NORMAL toStreamD #-}
 toStreamD :: forall m a. (Monad m, Storable a) => Array a -> D.Stream m a
@@ -645,11 +515,6 @@ writeNAlignedUnmanaged :: forall m a. (MonadIO m, Storable a)
 writeNAlignedUnmanaged alignSize =
     writeNAllocWith (MA.newArrayAlignedUnmanaged alignSize)
 
-{-
-data ArrayUnsafe a = ArrayUnsafe
-    {-# UNPACK #-} !(ForeignPtr a) -- first address
-    {-# UNPACK #-} !(Ptr a)        -- first unused address
--}
 -- | Like 'writeN' but does not check the array bounds when writing. The fold
 -- driver must not call the step function more than 'n' times otherwise it will
 -- corrupt the memory and crash. This function exists mainly because any
@@ -710,16 +575,6 @@ writeAligned alignSize =
 fromStreamDN :: forall m a. (MonadIO m, Storable a)
     => Int -> D.Stream m a -> m (Array a)
 fromStreamDN limit str = unsafeFreeze <$> MA.fromStreamDN limit str
-
-{-
-
-data GroupState s start end bound
-    = GroupStart s
-    | GroupBuffer s start end bound
-    | GroupYield start end bound (GroupState s start end bound)
-    | GroupFinish
-
--}
 
 -- | @fromStreamArraysOf n stream@ groups the input stream into a stream of
 -- arrays of size n.
@@ -1043,48 +898,6 @@ unlines sep (D.Stream step state) = D.Stream step' (OuterLoop state)
         return $ D.Yield x (InnerLoop st startf
                             (p `plusPtr` sizeOf (undefined :: a)) end)
 
-{-
--- Splice an array into a pre-reserved mutable array.  The user must ensure
--- that there is enough space in the mutable array.
-{-# INLINE spliceWith #-}
-spliceWith :: (MonadIO m) => Array a -> Array a -> m (Array a)
-spliceWith dst@(Array _ end bound) src  = liftIO $ do
-    let srcLen = byteLength src
-    if end `plusPtr` srcLen > bound
-    then error "Bug: spliceIntoUnsafe: Not enough space in the target array"
-    else
-        withForeignPtr (aStart dst) $ \_ ->
-            withForeignPtr (aStart src) $ \psrc -> do
-                let pdst = aEnd dst
-                memcpy (castPtr pdst) (castPtr psrc) srcLen
-                return $ dst { aEnd = pdst `plusPtr` srcLen }
-
--- Splice a new array into a preallocated mutable array, doubling the space if
--- there is no space in the target array.
-{-# INLINE spliceWithDoubling #-}
-spliceWithDoubling :: (MonadIO m, Storable a)
-    => Array a -> Array a -> m (Array a)
-spliceWithDoubling dst@(Array start end bound) src  = do
-    assert (end <= bound) (return ())
-    let srcLen = aEnd src `minusPtr` unsafeForeignPtrToPtr (aStart src)
-
-    dst1 <-
-        if end `plusPtr` srcLen >= bound
-        then do
-            let oldStart = unsafeForeignPtrToPtr start
-                oldSize = end `minusPtr` oldStart
-                newSize = max (oldSize * 2) (oldSize + srcLen)
-            liftIO $ realloc newSize dst
-        else return dst
-    spliceWith dst1 src
-
-data SpliceState s arr
-    = SpliceInitial s
-    | SpliceBuffering s arr
-    | SpliceYielding arr (SpliceState s arr)
-    | SpliceFinish
--}
-
 {-# INLINE_NORMAL packArraysChunksOf #-}
 packArraysChunksOf :: (MonadIO m, Storable a)
     => Int -> D.Stream m (Array a) -> D.Stream m (Array a)
@@ -1139,13 +952,7 @@ lpackArraysChunksOf n (Fold step1 initial1 extract1) =
             else return (Tuple' (Just buf'') r1)
 
 #if !defined(mingw32_HOST_OS)
-{-
-data GatherState s arr
-    = GatherInitial s
-    | GatherBuffering s arr Int
-    | GatherYielding arr (GatherState s arr)
-    | GatherFinish
--}
+
 -- | @groupIOVecsOf maxBytes maxEntries@ groups arrays in the incoming stream
 -- to create a stream of 'IOVec' arrays with a maximum of @maxBytes@ bytes in
 -- each array and a maximum of @maxEntries@ entries in each array.

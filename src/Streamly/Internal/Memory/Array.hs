@@ -157,14 +157,6 @@ import qualified Streamly.Internal.Data.Stream.StreamK as K
 -- Construction
 -------------------------------------------------------------------------------
 
-{-
--- | Create a new uninitialized array of given length.
---
--- @since 0.7.0
-newArray :: (MonadIO m, Storable a) => Int -> m (Array a)
-newArray len = undefined
--}
-
 -- | Create an 'Array' from the first N elements of a stream. The array is
 -- allocated to size N, if the stream terminates before N elements then the
 -- array may hold less than N elements.
@@ -451,7 +443,7 @@ writeIndex arr i a = do
 -- @since 0.7.0
 {-# INLINE writeSlice #-}
 writeSlice :: (IsStream t, Monad m, Storable a)
-    => Array a -> Int -> Int -> t m a -> m ()
+    => Array a -> Int -> Int -> t m a -> m (Array a)
 writeSlice arr i len s = undefined
 
 -- | @writeSliceRev arr i count stream@ writes a stream to the array @arr@
@@ -461,7 +453,7 @@ writeSlice arr i len s = undefined
 -- @since 0.7.0
 {-# INLINE writeSliceRev #-}
 writeSliceRev :: (IsStream t, Monad m, Storable a)
-    => Array a -> Int -> Int -> t m a -> m ()
+    => Array a -> Int -> Int -> t m a -> m (Array a)
 writeSliceRev arr i len s = undefined
 -}
 
