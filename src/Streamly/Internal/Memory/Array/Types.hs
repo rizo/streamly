@@ -35,8 +35,8 @@ module Streamly.Internal.Memory.Array.Types
 --    , spliceWithDoubling
     , spliceTwo
 
-    , fromAddr#
-    , fromString#
+--    , fromAddr#
+--    , fromString#
     , fromList
     , fromListN
     , fromStreamDN
@@ -58,9 +58,9 @@ module Streamly.Internal.Memory.Array.Types
     -- * Elimination
     , unsafeIndexIO
     , unsafeIndex
-    , length
     , byteLength
---    , byteCapacity
+    , length
+
     , foldl'
     , foldr
     , splitAt
@@ -79,47 +79,36 @@ module Streamly.Internal.Memory.Array.Types
     , writeAligned
 
     -- * Utilities
-    , defaultChunkSize
-    , mkChunkSize
-    , mkChunkSizeKB
-    , unsafeInlineIO
---    , realloc
---    , shrinkToFit
-    , memcpy
-    , memcmp
-    , bytesToElemCount
+    , MA.defaultChunkSize
+    , MA.mkChunkSize
+    , MA.mkChunkSizeKB
+    , MA.unsafeInlineIO
+
+    , MA.memcpy
+    , MA.memcmp
+    , MA.bytesToElemCount
 
     , unlines
     )
 where
 
-import Control.Exception (assert)
 import Control.DeepSeq (NFData(..))
-import Control.Monad (when, void)
 import Control.Monad.IO.Class (MonadIO(..))
-import Data.Functor.Identity (runIdentity)
 #if __GLASGOW_HASKELL__ < 808
 import Data.Semigroup (Semigroup(..))
 #endif
 import Data.Word (Word8)
-import Foreign.C.String (CString)
-import Foreign.C.Types (CSize(..), CInt(..))
-import Foreign.ForeignPtr (withForeignPtr, touchForeignPtr)
-import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
-import Foreign.Ptr (plusPtr, minusPtr, castPtr, nullPtr)
 import Foreign.Storable (Storable(..))
 import Prelude hiding (length, foldr, read, unlines, splitAt)
 import Text.Read (readPrec, readListPrec, readListPrecDefault)
 
-import GHC.Base (Addr#, nullAddr#, realWorld#, build)
+import GHC.Base (nullAddr#)
 import GHC.Exts (IsList, IsString(..))
-import GHC.ForeignPtr (ForeignPtr(..), newForeignPtr_)
-import GHC.IO (IO(IO), unsafePerformIO)
+import GHC.ForeignPtr (ForeignPtr(..))
+import GHC.IO (unsafePerformIO)
 import GHC.Ptr (Ptr(..))
 
-import Streamly.Internal.Data.Fold.Types (Fold(..))
-import Streamly.Internal.Data.Strict (Tuple'(..))
-import Streamly.Internal.Data.SVar (adaptState)
+import Streamly.Internal.Data.Fold.Types (Fold(..), lmap)
 
 import qualified Streamly.Internal.Memory.Mutable.Array.Types as MA
 
@@ -134,15 +123,6 @@ import qualified GHC.Exts as Exts
 
 #ifdef DEVBUILD
 import qualified Data.Foldable as F
-#endif
-
-#if MIN_VERSION_base(4,10,0)
-import Foreign.ForeignPtr (plusForeignPtr)
-#else
-import GHC.Base (Int(..), plusAddr#)
-import GHC.ForeignPtr (ForeignPtr(..))
-plusForeignPtr :: ForeignPtr a -> Int -> ForeignPtr b
-plusForeignPtr (ForeignPtr addr c) (I# d) = ForeignPtr (plusAddr# addr d) c
 #endif
 
 -------------------------------------------------------------------------------
@@ -230,47 +210,9 @@ unsafeThaw :: Array a -> MA.Array a
 unsafeThaw (Array as ae) = MA.Array as ae ae
 
 -------------------------------------------------------------------------------
--- Utility functions
--------------------------------------------------------------------------------
-
-foreign import ccall unsafe "string.h memcpy" c_memcpy
-    :: Ptr Word8 -> Ptr Word8 -> CSize -> IO (Ptr Word8)
-
-foreign import ccall unsafe "string.h strlen" c_strlen
-    :: CString -> IO CSize
-
-foreign import ccall unsafe "string.h memchr" c_memchr
-    :: Ptr Word8 -> Word8 -> CSize -> IO (Ptr Word8)
-
--- XXX we are converting Int to CSize
-memcpy :: Ptr Word8 -> Ptr Word8 -> Int -> IO ()
-memcpy dst src len = void (c_memcpy dst src (fromIntegral len))
-
-foreign import ccall unsafe "string.h memcmp" c_memcmp
-    :: Ptr Word8 -> Ptr Word8 -> CSize -> IO CInt
-
--- XXX we are converting Int to CSize
--- return True if the memory locations have identical contents
-{-# INLINE memcmp #-}
-memcmp :: Ptr Word8 -> Ptr Word8 -> Int -> IO Bool
-memcmp p1 p2 len = do
-    r <- c_memcmp p1 p2 (fromIntegral len)
-    return $ r == 0
-
-{-# INLINE unsafeInlineIO #-}
-unsafeInlineIO :: IO a -> a
-unsafeInlineIO (IO m) = case m realWorld# of (# _, r #) -> r
-
-{-# INLINE bytesToElemCount #-}
-bytesToElemCount :: Storable a => a -> Int -> Int
-bytesToElemCount x n =
-    let elemSize = sizeOf x
-    in n + elemSize - 1 `div` elemSize
-
--------------------------------------------------------------------------------
 -- Construction
 -------------------------------------------------------------------------------
-
+{-
 -- XXX when converting an array of Word8 from a literal string we can simply
 -- refer to the literal string. Is it possible to write rules such that
 -- fromList Word8 can be rewritten so that GHC does not first convert the
@@ -352,7 +294,7 @@ fromString# addr# = do
   where
     cstr :: CString
     cstr = Ptr addr#
-
+-}
 -------------------------------------------------------------------------------
 -- Elimination
 -------------------------------------------------------------------------------
@@ -362,28 +304,19 @@ fromString# addr# = do
 -- Unsafe because it does not check the bounds of the array.
 {-# INLINE_NORMAL unsafeIndexIO #-}
 unsafeIndexIO :: forall a. Storable a => Array a -> Int -> IO a
-unsafeIndexIO Array {..} i =
-     withForeignPtr aStart $ \p -> do
-        let elemSize = sizeOf (undefined :: a)
-            elemOff = p `plusPtr` (elemSize * i)
-        assert (i >= 0 && elemOff `plusPtr` elemSize <= aEnd)
-               (return ())
-        peek elemOff
+unsafeIndexIO arr i = MA.unsafeIndexIO (unsafeThaw arr) i
 
 -- | Return element at the specified index without checking the bounds.
 {-# INLINE_NORMAL unsafeIndex #-}
 unsafeIndex :: forall a. Storable a => Array a -> Int -> a
-unsafeIndex arr i = let !r = unsafeInlineIO $ unsafeIndexIO arr i in r
+unsafeIndex arr i = MA.unsafeIndex (unsafeThaw arr) i
 
 -- | /O(1)/ Get the byte length of the array.
 --
 -- @since 0.7.0
 {-# INLINE byteLength #-}
 byteLength :: Array a -> Int
-byteLength Array{..} =
-    let p = unsafeForeignPtrToPtr aStart
-        len = aEnd `minusPtr` p
-    in assert (len >= 0) len
+byteLength = MA.byteLength . unsafeThaw
 
 -- | /O(1)/ Get the length of the array i.e. the number of elements in the
 -- array.
@@ -391,98 +324,42 @@ byteLength Array{..} =
 -- @since 0.7.0
 {-# INLINE length #-}
 length :: forall a. Storable a => Array a -> Int
-length arr = byteLength arr `div` sizeOf (undefined :: a)
+length arr =  MA.length (unsafeThaw arr)
 
 {-# INLINE_NORMAL toStreamD #-}
 toStreamD :: forall m a. (Monad m, Storable a) => Array a -> D.Stream m a
-toStreamD Array{..} =
-    let p = unsafeForeignPtrToPtr aStart
-    in D.Stream step p
-
-    where
-
-    {-# INLINE_LATE step #-}
-    step _ p | p == aEnd = return D.Stop
-    step _ p = do
-        -- unsafeInlineIO allows us to run this in Identity monad for pure
-        -- toList/foldr case which makes them much faster due to not
-        -- accumulating the list and fusing better with the pure consumers.
-        --
-        -- This should be safe as the array contents are guaranteed to be
-        -- evaluated/written to before we peek at them.
-        let !x = unsafeInlineIO $ do
-                    r <- peek p
-                    touchForeignPtr aStart
-                    return r
-        return $ D.Yield x (p `plusPtr` sizeOf (undefined :: a))
+toStreamD arr = MA.toStreamD (unsafeThaw arr)
 
 {-# INLINE toStreamK #-}
 toStreamK :: forall t m a. (K.IsStream t, Storable a) => Array a -> t m a
-toStreamK Array{..} =
-    let p = unsafeForeignPtrToPtr aStart
-    in go p
-
-    where
-
-    go p | p == aEnd = K.nil
-         | otherwise =
-        -- See Note in toStreamD.
-        let !x = unsafeInlineIO $ do
-                    r <- peek p
-                    touchForeignPtr aStart
-                    return r
-        in x `K.cons` go (p `plusPtr` sizeOf (undefined :: a))
+toStreamK arr = MA.toStreamK (unsafeThaw arr)
 
 {-# INLINE_NORMAL toStreamDRev #-}
 toStreamDRev :: forall m a. (Monad m, Storable a) => Array a -> D.Stream m a
-toStreamDRev Array{..} =
-    let p = aEnd `plusPtr` negate (sizeOf (undefined :: a))
-    in D.Stream step p
-
-    where
-
-    {-# INLINE_LATE step #-}
-    step _ p | p < unsafeForeignPtrToPtr aStart = return D.Stop
-    step _ p = do
-        -- See comments in toStreamD for why we use unsafeInlineIO
-        let !x = unsafeInlineIO $ do
-                    r <- peek p
-                    touchForeignPtr aStart
-                    return r
-        return $ D.Yield x (p `plusPtr` negate (sizeOf (undefined :: a)))
+toStreamDRev arr = MA.toStreamDRev (unsafeThaw arr)
 
 {-# INLINE toStreamKRev #-}
 toStreamKRev :: forall t m a. (K.IsStream t, Storable a) => Array a -> t m a
-toStreamKRev Array {..} =
-    let p = aEnd `plusPtr` negate (sizeOf (undefined :: a))
-    in go p
-
-    where
-
-    go p | p < unsafeForeignPtrToPtr aStart = K.nil
-         | otherwise =
-        let !x = unsafeInlineIO $ do
-                    r <- peek p
-                    touchForeignPtr aStart
-                    return r
-        in x `K.cons` go (p `plusPtr` negate (sizeOf (undefined :: a)))
+toStreamKRev arr = MA.toStreamKRev (unsafeThaw arr)
 
 {-# INLINE_NORMAL foldl' #-}
 foldl' :: forall a b. Storable a => (b -> a -> b) -> b -> Array a -> b
-foldl' f z arr = runIdentity $ D.foldl' f z $ toStreamD arr
+foldl' f z arr = MA.foldl' f z (unsafeThaw arr)
 
 {-# INLINE_NORMAL foldr #-}
 foldr :: Storable a => (a -> b -> b) -> b -> Array a -> b
-foldr f z arr = runIdentity $ D.foldr f z $ toStreamD arr
+foldr f z arr = MA.foldr f z (unsafeThaw arr)
 
 -------------------------------------------------------------------------------
 -- Instances
 -------------------------------------------------------------------------------
 
+{-
 {-# INLINE_NORMAL writeNAllocWith #-}
 writeNAllocWith :: forall m a. (MonadIO m, Storable a)
     => (Int -> IO (MA.Array a)) -> Int -> Fold m a (Array a)
 writeNAllocWith alloc n = unsafeFreeze <$> MA.writeNAllocWith alloc n
+-}
 
 -- | @writeN n@ folds a maximum of @n@ elements from the input stream to an
 -- 'Array'.
@@ -490,7 +367,7 @@ writeNAllocWith alloc n = unsafeFreeze <$> MA.writeNAllocWith alloc n
 -- @since 0.7.0
 {-# INLINE_NORMAL writeN #-}
 writeN :: forall m a. (MonadIO m, Storable a) => Int -> Fold m a (Array a)
-writeN = writeNAllocWith MA.newArray
+writeN = fmap unsafeFreeze . MA.writeN
 
 -- | @writeNAligned alignment n@ folds a maximum of @n@ elements from the input
 -- stream to an 'Array' aligned to the given size.
@@ -500,7 +377,7 @@ writeN = writeNAllocWith MA.newArray
 {-# INLINE_NORMAL writeNAligned #-}
 writeNAligned :: forall m a. (MonadIO m, Storable a)
     => Int -> Int -> Fold m a (Array a)
-writeNAligned alignSize = writeNAllocWith (MA.newArrayAligned alignSize)
+writeNAligned alignSize = fmap unsafeFreeze . MA.writeNAligned alignSize
 
 -- | @writeNAlignedUnmanaged n@ folds a maximum of @n@ elements from the input
 -- stream to an 'Array' aligned to the given size and using unmanaged memory.
@@ -512,8 +389,7 @@ writeNAligned alignSize = writeNAllocWith (MA.newArrayAligned alignSize)
 {-# INLINE_NORMAL writeNAlignedUnmanaged #-}
 writeNAlignedUnmanaged :: forall m a. (MonadIO m, Storable a)
     => Int -> Int -> Fold m a (Array a)
-writeNAlignedUnmanaged alignSize =
-    writeNAllocWith (MA.newArrayAlignedUnmanaged alignSize)
+writeNAlignedUnmanaged alignSize = fmap unsafeFreeze . MA.writeNAlignedUnmanaged alignSize
 
 -- | Like 'writeN' but does not check the array bounds when writing. The fold
 -- driver must not call the step function more than 'n' times otherwise it will
@@ -552,9 +428,7 @@ toArrayMinChunk alignSize elemCount = unsafeFreeze <$> MA.toArrayMinChunk alignS
 -- @since 0.7.0
 {-# INLINE write #-}
 write :: forall m a. (MonadIO m, Storable a) => Fold m a (Array a)
-write = toArrayMinChunk (alignment (undefined :: a))
-                        (bytesToElemCount (undefined :: a)
-                        (mkChunkSize 1024))
+write = fmap unsafeFreeze MA.write
 
 -- | Like 'write' but the array memory is aligned according to the specified
 -- alignment size. This could be useful when we have specific alignment, for
@@ -566,10 +440,7 @@ write = toArrayMinChunk (alignment (undefined :: a))
 {-# INLINE writeAligned #-}
 writeAligned :: forall m a. (MonadIO m, Storable a)
     => Int -> Fold m a (Array a)
-writeAligned alignSize =
-    toArrayMinChunk alignSize
-                    (bytesToElemCount (undefined :: a)
-                    (mkChunkSize 1024))
+writeAligned = fmap unsafeFreeze . MA.writeAligned
 
 {-# INLINE_NORMAL fromStreamDN #-}
 fromStreamDN :: forall m a. (MonadIO m, Storable a)
@@ -593,60 +464,14 @@ data FlattenState s a =
 {-# INLINE_NORMAL flattenArrays #-}
 flattenArrays :: forall m a. (MonadIO m, Storable a)
     => D.Stream m (Array a) -> D.Stream m a
-flattenArrays (D.Stream step state) = D.Stream step' (OuterLoop state)
-
-    where
-
-    {-# INLINE_LATE step' #-}
-    step' gst (OuterLoop st) = do
-        r <- step (adaptState gst) st
-        return $ case r of
-            D.Yield Array{..} s ->
-                let p = unsafeForeignPtrToPtr aStart
-                in D.Skip (InnerLoop s aStart p aEnd)
-            D.Skip s -> D.Skip (OuterLoop s)
-            D.Stop -> D.Stop
-
-    step' _ (InnerLoop st _ p end) | p == end =
-        return $ D.Skip $ OuterLoop st
-
-    step' _ (InnerLoop st startf p end) = do
-        x <- liftIO $ do
-                    r <- peek p
-                    touchForeignPtr startf
-                    return r
-        return $ D.Yield x (InnerLoop st startf
-                            (p `plusPtr` sizeOf (undefined :: a)) end)
+flattenArrays = MA.flattenArrays . D.map unsafeThaw
 
 {-# INLINE_NORMAL flattenArraysRev #-}
 flattenArraysRev :: forall m a. (MonadIO m, Storable a)
     => D.Stream m (Array a) -> D.Stream m a
-flattenArraysRev (D.Stream step state) = D.Stream step' (OuterLoop state)
+flattenArraysRev = MA.flattenArraysRev . D.map unsafeThaw
 
-    where
-
-    {-# INLINE_LATE step' #-}
-    step' gst (OuterLoop st) = do
-        r <- step (adaptState gst) st
-        return $ case r of
-            D.Yield Array{..} s ->
-                let p = aEnd `plusPtr` negate (sizeOf (undefined :: a))
-                -- XXX we do not need aEnd
-                in D.Skip (InnerLoop s aStart p aEnd)
-            D.Skip s -> D.Skip (OuterLoop s)
-            D.Stop -> D.Stop
-
-    step' _ (InnerLoop st start p _) | p < unsafeForeignPtrToPtr start =
-        return $ D.Skip $ OuterLoop st
-
-    step' _ (InnerLoop st startf p end) = do
-        x <- liftIO $ do
-                    r <- peek p
-                    touchForeignPtr startf
-                    return r
-        return $ D.Yield x (InnerLoop st startf
-                            (p `plusPtr` negate (sizeOf (undefined :: a))) end)
-
+{-
 -- CAUTION: a very large number (millions) of arrays can degrade performance
 -- due to GC overhead because we need to buffer the arrays before we flatten
 -- all the arrays.
@@ -658,44 +483,15 @@ flattenArraysRev (D.Stream step state) = D.Stream step' (OuterLoop state)
 --
 {-# INLINE fromStreamD #-}
 fromStreamD :: (MonadIO m, Storable a) => D.Stream m a -> m (Array a)
-fromStreamD m = do
-    let s = fromStreamDArraysOf defaultChunkSize m
-    buffered <- D.foldr K.cons K.nil s
-    len <- K.foldl' (+) 0 (K.map length buffered)
-    fromStreamDN len $ flattenArrays $ D.fromStreamK buffered
-{-
-fromStreamD m = runFold write m
-    where
-    runFold (Fold step begin done) = D.foldlMx' step begin done
+fromStreamD m = unsafeFreeze <$> MA.fromStreamD m
 -}
-
--- Use foldr/build fusion to fuse with list consumers
--- This can be useful when using the IsList instance
-{-# INLINE_LATE toListFB #-}
-toListFB :: forall a b. Storable a => (a -> b -> b) -> b -> Array a -> b
-toListFB c n Array{..} = go (unsafeForeignPtrToPtr aStart)
-    where
-
-    go p | p == aEnd = n
-    go p =
-        -- unsafeInlineIO allows us to run this in Identity monad for pure
-        -- toList/foldr case which makes them much faster due to not
-        -- accumulating the list and fusing better with the pure consumers.
-        --
-        -- This should be safe as the array contents are guaranteed to be
-        -- evaluated/written to before we peek at them.
-        let !x = unsafeInlineIO $ do
-                    r <- peek p
-                    touchForeignPtr aStart
-                    return r
-        in c x (go (p `plusPtr` sizeOf (undefined :: a)))
 
 -- | Convert an 'Array' into a list.
 --
 -- @since 0.7.0
 {-# INLINE toList #-}
 toList :: Storable a => Array a -> [a]
-toList s = build (\c n -> toListFB c n s)
+toList = MA.toList . unsafeThaw
 
 instance (Show a, Storable a) => Show (Array a) where
     {-# INLINE showsPrec #-}
@@ -708,14 +504,14 @@ instance (Show a, Storable a) => Show (Array a) where
 -- @since 0.7.0
 {-# INLINABLE fromListN #-}
 fromListN :: Storable a => Int -> [a] -> Array a
-fromListN n xs = unsafePerformIO $ fromStreamDN n $ D.fromList xs
+fromListN n xs = unsafeFreeze $ MA.fromListN n xs
 
 -- | Create an 'Array' from a list. The list must be of finite size.
 --
 -- @since 0.7.0
 {-# INLINABLE fromList #-}
 fromList :: Storable a => [a] -> Array a
-fromList xs = unsafePerformIO $ fromStreamD $ D.fromList xs
+fromList xs = unsafeFreeze $ MA.fromList xs
 
 instance (Storable a, Read a, Show a) => Read (Array a) where
     {-# INLINE readPrec #-}
@@ -736,29 +532,11 @@ instance Storable a => IsList (Array a) where
     {-# INLINE toList #-}
     toList = toList
 
-{-# INLINE arrcmp #-}
-arrcmp :: Array a -> Array a -> Bool
-arrcmp arr1 arr2 =
-    let !res = unsafeInlineIO $ do
-            let ptr1 = unsafeForeignPtrToPtr $ aStart arr1
-            let ptr2 = unsafeForeignPtrToPtr $ aStart arr2
-            let len1 = aEnd arr1 `minusPtr` ptr1
-            let len2 = aEnd arr2 `minusPtr` ptr2
-
-            if len1 == len2
-            then do
-                r <- memcmp (castPtr ptr1) (castPtr ptr2) len1
-                touchForeignPtr $ aStart arr1
-                touchForeignPtr $ aStart arr2
-                return r
-            else return False
-    in res
-
 -- XXX we are assuming that Storable equality means element equality. This may
 -- or may not be correct? arrcmp is 40% faster compared to stream equality.
 instance (Storable a, Eq a) => Eq (Array a) where
     {-# INLINE (==) #-}
-    (==) = arrcmp
+    a == b = unsafeThaw a == unsafeThaw b
     -- arr1 == arr2 = runIdentity $ D.eqBy (==) (toStreamD arr1) (toStreamD arr2)
 
 instance (Storable a, NFData a) => NFData (Array a) where
@@ -767,8 +545,7 @@ instance (Storable a, NFData a) => NFData (Array a) where
 
 instance (Storable a, Ord a) => Ord (Array a) where
     {-# INLINE compare #-}
-    compare arr1 arr2 = unsafePerformIO $
-        D.cmpBy compare (toStreamD arr1) (toStreamD arr2)
+    compare a b = compare (unsafeThaw a) (unsafeThaw b)
 
     -- Default definitions defined in base do not have an INLINE on them, so we
     -- replicate them here with an INLINE.
@@ -855,48 +632,10 @@ instance Storable a => Monoid (Array a) where
 -- IO
 -------------------------------------------------------------------------------
 
--- | GHC memory management allocation header overhead
-allocOverhead :: Int
-allocOverhead = 2 * sizeOf (undefined :: Int)
-
-mkChunkSize :: Int -> Int
-mkChunkSize n = let size = n - allocOverhead in max size 0
-
-mkChunkSizeKB :: Int -> Int
-mkChunkSizeKB n = mkChunkSize (n * k)
-   where k = 1024
-
--- | Default maximum buffer size in bytes, for reading from and writing to IO
--- devices, the value is 32KB minus GHC allocation overhead, which is a few
--- bytes, so that the actual allocation is 32KB.
-defaultChunkSize :: Int
-defaultChunkSize = mkChunkSizeKB 32
-
 {-# INLINE_NORMAL unlines #-}
 unlines :: forall m a. (MonadIO m, Storable a)
     => a -> D.Stream m (Array a) -> D.Stream m a
-unlines sep (D.Stream step state) = D.Stream step' (OuterLoop state)
-    where
-    {-# INLINE_LATE step' #-}
-    step' gst (OuterLoop st) = do
-        r <- step (adaptState gst) st
-        return $ case r of
-            D.Yield Array{..} s ->
-                let p = unsafeForeignPtrToPtr aStart
-                in D.Skip (InnerLoop s aStart p aEnd)
-            D.Skip s -> D.Skip (OuterLoop s)
-            D.Stop -> D.Stop
-
-    step' _ (InnerLoop st _ p end) | p == end =
-        return $ D.Yield sep $ OuterLoop st
-
-    step' _ (InnerLoop st startf p end) = do
-        x <- liftIO $ do
-                    r <- peek p
-                    touchForeignPtr startf
-                    return r
-        return $ D.Yield x (InnerLoop st startf
-                            (p `plusPtr` sizeOf (undefined :: a)) end)
+unlines sep str = MA.unlines sep (D.map unsafeThaw str)
 
 {-# INLINE_NORMAL packArraysChunksOf #-}
 packArraysChunksOf :: (MonadIO m, Storable a)
@@ -908,48 +647,7 @@ packArraysChunksOf n str = D.map unsafeFreeze $ MA.packArraysChunksOf n $ D.map 
 {-# INLINE_NORMAL lpackArraysChunksOf #-}
 lpackArraysChunksOf :: (MonadIO m, Storable a)
     => Int -> Fold m (Array a) () -> Fold m (Array a) ()
-lpackArraysChunksOf n (Fold step1 initial1 extract1) =
-    Fold step initial extract
-
-    where
-
-    initial = do
-        when (n <= 0) $
-            -- XXX we can pass the module string from the higher level API
-            error $ "Streamly.Internal.Memory.Array.Types.packArraysChunksOf: the size of "
-                 ++ "arrays [" ++ show n ++ "] must be a natural number"
-        r1 <- initial1
-        return (Tuple' Nothing r1)
-
-    extract (Tuple' Nothing r1) = extract1 r1
-    extract (Tuple' (Just buf) r1) = do
-        r <- step1 r1 (unsafeFreeze buf)
-        extract1 r
-
-    step (Tuple' Nothing r1) arr =
-            let len = byteLength arr
-             in if len >= n
-                then do
-                    r <- step1 r1 arr
-                    extract1 r
-                    r1' <- initial1
-                    return (Tuple' Nothing r1')
-                else return (Tuple' (Just (unsafeThaw arr)) r1)
-
-    step (Tuple' (Just buf) r1) arr = do
-            let len = MA.byteLength buf + byteLength arr
-            buf' <- if MA.byteCapacity buf < len
-                    then liftIO $ MA.realloc (max n len) buf
-                    else return buf
-            buf'' <- MA.spliceWith buf' (unsafeThaw arr)
-
-            if len >= n
-            then do
-                r <- step1 r1 (unsafeFreeze buf'')
-                extract1 r
-                r1' <- initial1
-                return (Tuple' Nothing r1')
-            else return (Tuple' (Just buf'') r1)
+lpackArraysChunksOf n fld = lmap unsafeThaw $ MA.lpackArraysChunksOf n (lmap unsafeFreeze fld)
 
 #if !defined(mingw32_HOST_OS)
 
@@ -969,52 +667,17 @@ groupIOVecsOf n maxIOVLen str = D.map unsafeFreeze $ MA.groupIOVecsOf n maxIOVLe
 --
 -- @since 0.7.0
 splitAt :: forall a. Storable a => Int -> Array a -> (Array a, Array a)
-splitAt i arr@Array{..} =
-    let maxIndex = length arr - 1
-    in  if i < 0
-        then error "sliceAt: negative array index"
-        else if i > maxIndex
-             then error $ "sliceAt: specified array index " ++ show i
-                        ++ " is beyond the maximum index " ++ show maxIndex
-             else let off = i * sizeOf (undefined :: a)
-                      p = unsafeForeignPtrToPtr aStart `plusPtr` off
-                in ( Array
-                  { aStart = aStart
-                  , aEnd = p
-                  }
-                , Array
-                  { aStart = aStart `plusForeignPtr` off
-                  , aEnd = aEnd
-                  }
-                )
+splitAt i arr = (unsafeFreeze a, unsafeFreeze b)
+  where
+    (a, b) = MA.splitAt i (unsafeThaw arr)
 
 -- Drops the separator byte
 {-# INLINE breakOn #-}
 breakOn :: MonadIO m
     => Word8 -> Array Word8 -> m (Array Word8, Maybe (Array Word8))
-breakOn sep arr@Array{..} = liftIO $ do
-    let p = unsafeForeignPtrToPtr aStart
-    loc <- c_memchr p sep (fromIntegral $ aEnd `minusPtr` p)
-    return $
-        if loc == nullPtr
-        then (arr, Nothing)
-        else
-            ( Array
-                { aStart = aStart
-                , aEnd = loc
-                }
-            , Just $ Array
-                    { aStart = aStart `plusForeignPtr` (loc `minusPtr` p + 1)
-                    , aEnd = aEnd
-                    }
-            )
-
-data SplitState s arr
-    = Initial s
-    | Buffering s arr
-    | Splitting s arr
-    | Yielding arr (SplitState s arr)
-    | Finishing
+breakOn sep arr = do
+  (a, b) <- MA.breakOn sep (unsafeThaw arr)
+  return (unsafeFreeze a, unsafeFreeze <$> b)
 
 -- | Split a stream of arrays on a given separator byte, dropping the separator
 -- and coalescing all the arrays between two separators into a single array.
@@ -1026,42 +689,4 @@ splitOn
     => Word8
     -> D.Stream m (Array Word8)
     -> D.Stream m (Array Word8)
-splitOn byte (D.Stream step state) = D.Stream step' (Initial state)
-
-    where
-
-    {-# INLINE_LATE step' #-}
-    step' gst (Initial st) = do
-        r <- step gst st
-        case r of
-            D.Yield arr s -> do
-                (arr1, marr2) <- breakOn byte arr
-                return $ case marr2 of
-                    Nothing   -> D.Skip (Buffering s arr1)
-                    Just arr2 -> D.Skip (Yielding arr1 (Splitting s arr2))
-            D.Skip s -> return $ D.Skip (Initial s)
-            D.Stop -> return D.Stop
-
-    step' gst (Buffering st buf) = do
-        r <- step gst st
-        case r of
-            D.Yield arr s -> do
-                (arr1, marr2) <- breakOn byte arr
-                buf' <- spliceTwo buf arr1
-                return $ case marr2 of
-                    Nothing -> D.Skip (Buffering s buf')
-                    Just x -> D.Skip (Yielding buf' (Splitting s x))
-            D.Skip s -> return $ D.Skip (Buffering s buf)
-            D.Stop -> return $
-                if byteLength buf == 0
-                then D.Stop
-                else D.Skip (Yielding buf Finishing)
-
-    step' _ (Splitting st buf) = do
-        (arr1, marr2) <- breakOn byte buf
-        return $ case marr2 of
-                Nothing -> D.Skip $ Buffering st arr1
-                Just arr2 -> D.Skip $ Yielding arr1 (Splitting st arr2)
-
-    step' _ (Yielding arr next) = return $ D.Yield arr next
-    step' _ Finishing = return D.Stop
+splitOn byte str = D.map unsafeFreeze $ MA.splitOn byte $ D.map unsafeThaw str
