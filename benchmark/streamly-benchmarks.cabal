@@ -165,6 +165,7 @@ benchmark Prelude.Serial
     buildable: False
   else
     buildable: True
+  build-depends: primitive
 
 benchmark Prelude.WSerial
   import: bench-options
