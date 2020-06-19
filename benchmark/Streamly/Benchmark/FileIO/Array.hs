@@ -39,20 +39,19 @@ module Streamly.Benchmark.FileIO.Array
     )
 where
 
-import Data.Functor.Identity (runIdentity)
+import System.IO.Unsafe (unsafePerformIO)
 import Data.Word (Word8)
 import System.IO (Handle, hClose)
 import Prelude hiding (last)
 
 import qualified Streamly.FileSystem.Handle as FH
-import qualified Streamly.Memory.Array as A
 import qualified Streamly.Prelude as S
 import qualified Streamly.Data.Unicode.Stream as SS
 import qualified Streamly.Internal.Data.Unicode.Stream as IUS
 
 import qualified Streamly.Internal.FileSystem.Handle as IFH
-import qualified Streamly.Internal.Memory.Array as IA
-import qualified Streamly.Internal.Memory.ArrayStream as AS
+import qualified Streamly.Internal.Data.Prim.Pinned.Array as A
+import qualified Streamly.Internal.Data.Prim.Pinned.ArrayStream as AS
 import qualified Streamly.Internal.Data.Unfold as IUF
 import qualified Streamly.Internal.Prelude as IP
 
@@ -70,7 +69,7 @@ last inh = do
     larr <- S.last s
     return $ case larr of
         Nothing -> Nothing
-        Just arr -> IA.readIndex arr (A.length arr - 1)
+        Just arr -> A.readIndex arr (A.length arr - 1)
 
 #ifdef INSPECTION
 inspect $ hasNoTypeClasses 'last
@@ -114,7 +113,7 @@ inspect $ 'countWords `hasNoType` ''Step
 {-# INLINE sumBytes #-}
 sumBytes :: Handle -> IO Word8
 sumBytes inh = do
-    let foldlArr' f z = runIdentity . S.foldl' f z . IA.toStream
+    let foldlArr' f z = unsafePerformIO . S.foldl' f z . A.toStream
     let s = IFH.toChunks inh
     S.foldl' (\acc arr -> acc + foldlArr' (+) 0 arr) 0 s
 

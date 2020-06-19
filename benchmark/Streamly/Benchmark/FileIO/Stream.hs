@@ -78,15 +78,14 @@ import Prelude hiding (last, length)
 
 import qualified Streamly.FileSystem.Handle as FH
 import qualified Streamly.Internal.FileSystem.Handle as IFH
-import qualified Streamly.Memory.Array as A
--- import qualified Streamly.Internal.Memory.Array as IA
-import qualified Streamly.Internal.Memory.Array.Types as AT
+import qualified Streamly.Internal.Data.Prim.Pinned.Array as A
+import qualified Streamly.Internal.Data.Prim.Pinned.Array.Types as AT
 import qualified Streamly.Prelude as S
 import qualified Streamly.Data.Fold as FL
 -- import qualified Streamly.Internal.Data.Fold as IFL
 import qualified Streamly.Data.Unicode.Stream as SS
 import qualified Streamly.Internal.Data.Unicode.Stream as IUS
-import qualified Streamly.Internal.Memory.Unicode.Array as IUA
+import qualified Streamly.Internal.Data.Prim.Pinned.Unicode.Array as IUA
 import qualified Streamly.Internal.Data.Unfold as IUF
 import qualified Streamly.Internal.Data.Parser as PR
 import qualified Streamly.Internal.Prelude as IP
@@ -415,8 +414,8 @@ chunksOfSum n inh = S.length $ S.chunksOf n FL.sum (S.unfold FH.read inh)
 {-# INLINE chunksOf #-}
 chunksOf :: Int -> Handle -> IO Int
 chunksOf n inh =
-    -- writeNUnsafe gives 2.5x boost here over writeN.
-    S.length $ S.chunksOf n (AT.writeNUnsafe n) (S.unfold FH.read inh)
+    -- writeN gives 2.5x boost here over writeN.
+    S.length $ S.chunksOf n (AT.writeN n) (S.unfold FH.read inh)
 
 #ifdef INSPECTION
 inspect $ hasNoTypeClasses 'chunksOf
@@ -434,7 +433,7 @@ inspect $ 'chunksOf `hasNoType` ''GroupState
 chunksOfD :: Int -> Handle -> IO Int
 chunksOfD n inh =
     D.foldlM' (\i _ -> return $ i + 1) 0
-        $ D.groupsOf n (AT.writeNUnsafe n)
+        $ D.groupsOf n (AT.writeN n)
         $ D.fromStreamK (S.unfold FH.read inh)
 
 #ifdef INSPECTION
