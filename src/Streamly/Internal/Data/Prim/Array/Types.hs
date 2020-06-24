@@ -1,6 +1,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UnboxedTuples #-}
 
+#include "inline.hs"
+
 -- |
 -- Module      : Streamly.Internal.Data.Prim.Array.Types
 -- Copyright   : (c) 2019 Composewell Technologies
