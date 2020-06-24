@@ -75,7 +75,7 @@ all =
             Left _ -> False
 
 yield :: Property
-yield = 
+yield =
     forAll (chooseInt (min_value, max_value)) $ \x ->
         case S.parseD (D.yield x) (S.fromList [1 :: Int]) of
             Right r -> r == x
@@ -105,7 +105,7 @@ dieM =
 -- Element Parser Tests
 
 peekPass :: Property
-peekPass = 
+peekPass =
     forAll (chooseInt (1, max_length)) $ \list_length ->
         forAll (vectorOf list_length (chooseInt (min_value, max_value))) $ \ls ->
             case S.parseD D.peek (S.fromList ls) of
@@ -121,13 +121,13 @@ peekFail =
         Left _ -> True)
 
 eofPass :: Property
-eofPass = 
+eofPass =
     property (case S.parseD D.eof (S.fromList []) of
         Right _ -> True
         Left _ -> False)
 
 eofFail :: Property
-eofFail = 
+eofFail =
     forAll (chooseInt (1, max_length)) $ \list_length ->
         forAll (vectorOf list_length (chooseInt (min_value, max_value))) $ \ls ->
             case S.parseD D.eof (S.fromList ls) of
@@ -135,7 +135,7 @@ eofFail =
                 Left _ -> True
 
 satisfyPass :: Property
-satisfyPass = 
+satisfyPass =
     forAll (chooseInt (mid_value, max_value)) $ \first_element ->
         forAll (listOf (chooseInt (min_value, max_value))) $ \ls_tail ->
             let
@@ -147,7 +147,7 @@ satisfyPass =
                     Left _ -> False
 
 satisfy :: Property
-satisfy = 
+satisfy =
     forAll (listOf (chooseInt (min_value, max_value))) $ \ls ->
         case S.parseD (D.satisfy predicate) (S.fromList ls) of
             Right r -> case ls of
@@ -162,7 +162,7 @@ satisfy =
 -- Sequence Parsers Tests
 
 take :: Property
-take = 
+take =
     forAll (chooseInt (min_value, max_value)) $ \n ->
         forAll (listOf (chooseInt (min_value, max_value))) $ \ls ->
             case S.parseD (D.take n FL.toList) (S.fromList ls) of
@@ -170,7 +170,7 @@ take =
                 Left _ -> property False
 
 takeEQPass :: Property
-takeEQPass = 
+takeEQPass =
     forAll (chooseInt (min_value, max_value)) $ \n ->
         forAll (chooseInt (n, max_value)) $ \list_length ->
             forAll (vectorOf list_length (chooseInt (min_value, max_value))) $ \ls ->
@@ -182,11 +182,11 @@ takeEQ :: Property
 takeEQ =
     forAll (chooseInt (min_value, max_value)) $ \n ->
         forAll (listOf (chooseInt (min_value, max_value))) $ \ls ->
-            let 
+            let
                 list_length = Prelude.length ls
             in
                 case S.parseD (D.takeEQ n FL.toList) (S.fromList ls) of
-                    Right parsed_list -> 
+                    Right parsed_list ->
                         if (n <= list_length) then
                             checkListEqual parsed_list (Prelude.take n ls)
                         else
@@ -194,7 +194,7 @@ takeEQ =
                     Left _ -> property (n > list_length)
 
 takeGEPass :: Property
-takeGEPass = 
+takeGEPass =
     forAll (chooseInt (min_value, max_value)) $ \n ->
         forAll (chooseInt (n, max_value)) $ \list_length ->
             forAll (vectorOf list_length (chooseInt (min_value, max_value))) $ \ls ->
@@ -206,11 +206,11 @@ takeGE :: Property
 takeGE =
     forAll (chooseInt (min_value, max_value)) $ \n ->
         forAll (listOf (chooseInt (min_value, max_value))) $ \ls ->
-            let 
+            let
                 list_length = Prelude.length ls
             in
                 case S.parseD (D.takeGE n FL.toList) (S.fromList ls) of
-                    Right parsed_list -> 
+                    Right parsed_list ->
                         if (n <= list_length) then
                             checkListEqual parsed_list ls
                         else
@@ -219,7 +219,7 @@ takeGE =
 
 lookAheadPass :: Property
 lookAheadPass =
-    forAll (chooseInt (min_value + 1, max_value)) $ \n -> 
+    forAll (chooseInt (min_value + 1, max_value)) $ \n ->
         let
             takeWithoutConsume = D.lookAhead $ D.take n FL.toList
             parseTwice = do
@@ -235,7 +235,7 @@ lookAheadPass =
 
 lookAheadFail :: Property
 lookAheadFail =
-    forAll (chooseInt (min_value + 1, max_value)) $ \n -> 
+    forAll (chooseInt (min_value + 1, max_value)) $ \n ->
         let
             takeWithoutConsume = D.lookAhead $ D.take n FL.toList
             parseTwice = do
@@ -251,7 +251,7 @@ lookAheadFail =
 
 lookAhead :: Property
 lookAhead =
-    forAll (chooseInt (min_value, max_value)) $ \n -> 
+    forAll (chooseInt (min_value, max_value)) $ \n ->
         let
             takeWithoutConsume = D.lookAhead $ D.take n FL.toList
             parseTwice = do
@@ -281,7 +281,7 @@ takeWhile1 =
         case S.parseD (D.takeWhile1 predicate  FL.toList) (S.fromList ls) of
             Right parsed_list -> case ls of
                 [] -> property False
-                (x : _) -> 
+                (x : _) ->
                     if predicate x then
                         checkListEqual parsed_list (Prelude.takeWhile predicate ls)
                     else
@@ -291,7 +291,7 @@ takeWhile1 =
                 (x : _) -> property (not $ predicate x)
         where
             predicate = (== 0)
-    
+
 sliceSepBy :: Property
 sliceSepBy =
     forAll (listOf (chooseInt (0, 1))) $ \ls ->
@@ -302,7 +302,7 @@ sliceSepBy =
             predicate = (== 1)
 
 sliceSepByMax :: Property
-sliceSepByMax = 
+sliceSepByMax =
     forAll (chooseInt (min_value, max_value)) $ \n ->
         forAll (listOf (chooseInt (0, 1))) $ \ls ->
             case S.parseD (D.sliceSepByMax predicate n FL.toList) (S.fromList ls) of
@@ -341,7 +341,7 @@ splitWithFailBoth =
         Left _ -> True)
 
 teeWithPass :: Property
-teeWithPass = 
+teeWithPass =
     forAll (chooseInt (min_value, max_value)) $ \n ->
         forAll (listOf (chooseInt (0, 1))) $ \ls ->
             let
@@ -352,19 +352,19 @@ teeWithPass =
                     Left _ -> property False
 
 teeWithFailLeft :: Property
-teeWithFailLeft = 
+teeWithFailLeft =
     property (case S.parseD (D.teeWith (,) (D.die "die") (D.yield (1 :: Int))) (S.fromList [1 :: Int]) of
         Right _ -> False
         Left _ -> True)
 
 teeWithFailRight :: Property
-teeWithFailRight = 
+teeWithFailRight =
     property (case S.parseD (D.teeWith (,) (D.yield (1 :: Int)) (D.die "die")) (S.fromList [1 :: Int]) of
         Right _ -> False
         Left _ -> True)
 
 teeWithFailBoth :: Property
-teeWithFailBoth = 
+teeWithFailBoth =
     property (case S.parseD (D.teeWith (,) (D.die "die") (D.die "die")) (S.fromList [1 :: Int]) of
         Right _ -> False
         Left _ -> True)
@@ -432,10 +432,10 @@ longestFailBoth =
         Left _ -> True)
 
 many :: Property
-many = 
+many =
     forAll (listOf (chooseInt (0, 1))) $ \ls ->
         let
-            concatFold = FL.Fold (\concatList curr_list -> return $ concatList ++ curr_list) (return []) return
+            concatFold = FL.Fold (\concatList curr_list -> return $ FL.Yield (concatList ++ curr_list)) (return []) return
             prsr = D.many concatFold $ D.sliceSepBy (== 1) FL.toList
         in
             case S.parseD prsr (S.fromList ls) of
@@ -443,13 +443,13 @@ many =
                 Left _ -> property False
 
 many_empty :: Property
-many_empty = 
+many_empty =
     property (case S.parseD (D.many FL.toList (D.die "die")) (S.fromList [1 :: Int]) of
         Right res_list -> checkListEqual res_list ([] :: [Int])
         Left _ -> property False)
 
 -- some :: Property
--- some = 
+-- some =
 --     forAll (listOf (chooseInt (0, 1))) $ \ls ->
 --         let
 --             concatFold = FL.Fold (\concatList curr_list -> return $ concatList ++ curr_list) (return []) return
@@ -460,7 +460,7 @@ many_empty =
 --                 Left _ -> False
 
 -- someFail :: Property
--- someFail = 
+-- someFail =
 --     property (case S.parseD (D.some FL.toList (D.die "die")) (S.fromList [1 :: Int]) of
 --         Right _ -> False
 --         Left _ -> True)
@@ -475,7 +475,7 @@ main = hspec $ do
         prop "yield monadic value provided" yieldM
         prop "always fail" die
         prop "always fail but monadic" dieM
-    
+
     describe "test for element parser" $ do
         prop "peek = head with list length > 0" peekPass
         prop "peek fail on []" peekFail
