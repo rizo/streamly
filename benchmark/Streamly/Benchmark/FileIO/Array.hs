@@ -45,13 +45,13 @@ import System.IO (Handle, hClose)
 import Prelude hiding (last)
 
 import qualified Streamly.FileSystem.Handle as FH
-import qualified Streamly.Prelude as S
+import qualified Streamly.Internal.Prelude as S
 import qualified Streamly.Data.Unicode.Stream as SS
 import qualified Streamly.Internal.Data.Unicode.Stream as IUS
 
 import qualified Streamly.Internal.FileSystem.Handle as IFH
 import qualified Streamly.Internal.Data.Prim.Pinned.Array as A
-import qualified Streamly.Internal.Data.Prim.Pinned.ArrayStream as AS
+import qualified Streamly.Internal.Data.Prim.Pinned.Array.Types as A
 import qualified Streamly.Internal.Data.Unfold as IUF
 import qualified Streamly.Internal.Prelude as IP
 
@@ -91,7 +91,7 @@ inspect $ 'countBytes `hasNoType` ''Step
 -- | Count the number of lines in a file.
 {-# INLINE countLines #-}
 countLines :: Handle -> IO Int
-countLines = S.length . AS.splitOnSuffix 10 . IFH.toChunks
+countLines = S.length . S.splitInnerBySuffix (A.breakOn 10) A.spliceTwo . IFH.toChunks
 
 #ifdef INSPECTION
 inspect $ hasNoTypeClasses 'countLines
@@ -102,7 +102,7 @@ inspect $ 'countLines `hasNoType` ''Step
 -- | Count the number of lines in a file.
 {-# INLINE countWords #-}
 countWords :: Handle -> IO Int
-countWords = S.length . AS.splitOn 32 . IFH.toChunks
+countWords = S.length . S.splitInnerBy (A.breakOn 32) A.spliceTwo . IFH.toChunks
 
 #ifdef INSPECTION
 inspect $ hasNoTypeClasses 'countWords
@@ -203,8 +203,8 @@ inspect $ 'copy `hasNoType` ''Step
 linesUnlinesCopy :: Handle -> Handle -> IO ()
 linesUnlinesCopy inh outh =
     S.fold (IFH.writeWithBufferOf (1024*1024) outh)
-        $ AS.interposeSuffix 10
-        $ AS.splitOnSuffix 10
+        $ S.interposeSuffix 10 A.read
+        $ S.splitInnerBySuffix (A.breakOn 10) A.spliceTwo
         $ IFH.toChunksWithBufferOf (1024*1024) inh
 
 #ifdef INSPECTION
@@ -217,9 +217,9 @@ inspect $ hasNoTypeClassesExcept 'linesUnlinesCopy [''Storable]
 wordsUnwordsCopy :: Handle -> Handle -> IO ()
 wordsUnwordsCopy inh outh =
     S.fold (IFH.writeWithBufferOf (1024*1024) outh)
-        $ AS.interpose 32
+        $ S.interpose 32 A.read
         -- XXX this is not correct word splitting combinator
-        $ AS.splitOn 32
+        $ S.splitInnerBy (A.breakOn 32) A.spliceTwo
         $ IFH.toChunksWithBufferOf (1024*1024) inh
 
 #ifdef INSPECTION
