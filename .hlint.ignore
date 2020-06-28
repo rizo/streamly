@@ -28,3 +28,4 @@ src/Streamly/Internal/Network/Socket.hs
 src/Streamly/Internal/Data/Stream/Prelude.hs
 src/Streamly/FileSystem/FDIO.hs
 src/Streamly/Data/Unfold.hs
+src/prim-array-types.hs
