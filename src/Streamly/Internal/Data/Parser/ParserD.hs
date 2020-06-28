@@ -328,13 +328,15 @@ take n (Fold fstep finitial fextract) = Parser step initial extract
 
     initial = Tuple' 0 <$> finitial
 
-    step (Tuple' i r) a = do
-        res <- fstep r a
-        let i1 = i + 1
-            s1 = Tuple' i1 res
-        if i1 < n
-        then return $ Partial 0 s1
-        else Done 0 <$> fextract res
+    step (Tuple' i r) a
+        | i < n = do
+            res <- fstep r a
+            let i1 = i + 1
+                s1 = Tuple' i1 res
+            if i1 < n
+            then return $ Partial 0 s1
+            else Done 0 <$> fextract res
+        | otherwise = Done 1 <$> fextract r
 
     extract (Tuple' _ r) = fextract r
 
@@ -350,14 +352,18 @@ takeEQ n (Fold fstep finitial fextract) = Parser step initial extract
 
     initial = Tuple' 0 <$> finitial
 
-    step (Tuple' i r) a = do
-        res <- fstep r a
-        let i1 = i + 1
-            s1 = Tuple' i1 res
-        if i1 < n then return (Continue 0 s1) else Done 0 <$> fextract res
+    step (Tuple' i r) a
+      | i < n = do
+          res <- fstep r a
+          let i1 = i + 1
+              s1 = Tuple' i1 res
+          if i1 < n
+          then return (Continue 0 s1)
+          else Done 0 <$> fextract res
+      | otherwise = Done 1 <$> fextract r
 
     extract (Tuple' i r) =
-        if n == i
+        if i == 0
         then fextract r
         else throwM $ ParseError err
 
@@ -501,17 +507,18 @@ sliceSepByMax predicate cnt (Fold fstep finitial fextract) =
     where
 
     initial = Tuple' 0 <$> finitial
+
     step (Tuple' i r) a
-        | not (predicate a) = do
-            res <- fstep r a
-            let i1 = i + 1
-                s1 = Tuple' i1 res
-            if i1 < cnt
-            then return $ Partial 0 s1
-            else do
-                b <- fextract res
-                return $ Done 0 b
+        | not (predicate a) =
+            if i < cnt
+            then do
+                res <- fstep r a
+                let i1 = i + 1
+                    s1 = Tuple' i1 res
+                return $ Partial 0 s1
+            else Done 1 <$> fextract r
         | otherwise = Done 0 <$> fextract r
+
     extract (Tuple' _ r) = fextract r
 
 -- | See 'Streamly.Internal.Data.Parser.wordBy'.
