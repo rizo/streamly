@@ -28,7 +28,12 @@ prelude_other_grp="\
   Prelude.Concurrent \
   Prelude.Adaptive"
 
-array_grp="Memory.Array Data.Array Data.Prim.Array Data.SmallArray"
+array_grp="\
+  Memory.Array \
+  Data.Array \
+  Data.Prim.Array \
+  Data.SmallArray \
+  Data.Prim.Pinned.Array"
 
 base_parser_grp="Data.Parser.ParserD Data.Parser.ParserK"
 parser_grp="Data.Fold Data.Parser"
@@ -53,7 +58,8 @@ base_stream_cmp="Data.Stream.StreamD Data.Stream.StreamK"
 serial_wserial_cmp="Prelude.Serial Prelude.WSerial"
 serial_async_cmp="Prelude.Serial Prelude.Async"
 concurrent_cmp="Prelude.Async Prelude.WAsync Prelude.Ahead Prelude.Parallel"
-array_cmp="Memory.Array Data.Prim.Array Data.Array"
+array_cmp="Memory.Array Data.Prim.Array Data.Array Data.Prim.Pinned.Array"
+pinned_array_cmp="Memory.Array Data.Prim.Pinned.Array"
 base_parser_cmp=$base_parser_grp
 COMPARISONS="\
   base_stream_cmp \
@@ -61,6 +67,7 @@ COMPARISONS="\
   serial_async_cmp \
   concurrent_cmp \
   array_cmp \
+  pinned_array_cmp \
   base_parser_cmp"
 
 #------------------------------------------------------------------------------
